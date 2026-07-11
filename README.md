@@ -5,10 +5,17 @@ schemas, deny-by-default permissions, an auth-aware API client, and the generate
 pipeline that ties them together. Extracted from a working production app's shared
 foundation layer.
 
+See [`docs/blueprint.md`](docs/blueprint.md) for the full stack blueprint this repo's code
+is one piece of — repo layout, testing/CI/deploy conventions, and the spec-driven
+(OpenSpec) change-management workflow, all meant to be reused the same way across every
+project, not just this one.
+
 ## Repo layout — two packages, one repo, installed independently
 
 ```
 django-react-foundation/
+  docs/blueprint.md    <- the full stack blueprint (not just this repo's code)
+  scripts/              <- reusable tooling (e.g. openspec-mark-tasks.py)
   package.json          <- the JS package (repo root — see "why root" below)
   src/, bin/, tests/
   python/                <- the Python package (a subdirectory)
