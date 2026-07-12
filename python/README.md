@@ -92,6 +92,42 @@ def health_check(request): ...
 
 Grep `public_endpoint` at any time for the complete, auditable public-route allowlist.
 
+Rate-limit anonymous auth endpoints and personal-API-token traffic:
+
+```python
+from drf_foundation.throttling import LoginRateThrottle, RegisterRateThrottle
+
+class LoginView(...):
+    throttle_classes = (LoginRateThrottle,)
+```
+
+```python
+# settings.py
+REST_FRAMEWORK = {
+    ...,
+    "DEFAULT_THROTTLE_CLASSES": ["drf_foundation.throttling.TokenUserRateThrottle"],
+    "DEFAULT_THROTTLE_RATES": {"auth-login": "10/min", "auth-register": "10/hour", "token-user": "120/min"},
+}
+```
+
+`TokenUserRateThrottle` only throttles requests authenticated via DRF's `TokenAuthentication`
+(personal API tokens) — JWT, shared-key, and anonymous traffic all bypass it, so putting it
+in `DEFAULT_THROTTLE_CLASSES` is safe globally.
+
+Check Celery/Redis broker health (e.g. for an admin dashboard) — install the `celery` extra
+(`django-drf-foundation[celery]`) first:
+
+```python
+from myproject.celery import app  # your own Celery app instance
+from drf_foundation.celery_health import broker_health
+
+reachable, worker_count = broker_health(app)
+```
+
+Two-stage probe (redis `PING`, then `app.control.ping()` for worker count) so a health
+endpoint fails fast instead of hanging; see the module docstring for a real gotcha it
+avoids (Kombu's pidbox mailbox is invisible to `PUBSUB CHANNELS`).
+
 Export the combined JSON Schema for the frontend:
 
 ```bash
@@ -109,6 +145,11 @@ frontend side to generate typed API response/request models. Auto-discovery mean
 uv sync
 uv run pytest
 ```
+
+## Optional extras
+
+- `django-drf-foundation[celery]` — pulls in `celery` + `redis` for
+  `drf_foundation.celery_health`. Skip it if you have no background job queue.
 
 ## What this package deliberately does NOT cover
 
