@@ -1,6 +1,6 @@
 {
   "name": "react-vite-foundation",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Auth-aware API client, local/prod URL switch, query-key factory, and generated-TS-types CLI for a React + Vite + TanStack Query frontend.",
   "type": "module",
   "main": "src/index.ts",

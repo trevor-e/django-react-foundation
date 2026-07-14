@@ -94,6 +94,59 @@ describe('createApiClient', () => {
     expect((retryCall[1].headers as Record<string, string>)['Authorization']).toBe('Bearer new-token')
   })
 
+  it('single-flights the refresh when concurrent requests 401 together', async () => {
+    const tokenStorage = createMemoryTokenStorage()
+    tokenStorage.setTokens({ accessToken: 'old-token', refreshToken: 'refresh-1' })
+    let refreshCalls = 0
+
+    fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/api/auth/refresh')) {
+        refreshCalls += 1
+        // A rotate-and-blacklist backend accepts each refresh token exactly once.
+        if (refreshCalls > 1) return new Response(null, { status: 401 })
+        return jsonResponse({ access_token: 'new-token', refresh_token: 'refresh-2' })
+      }
+      const auth = (init.headers as Record<string, string>)['Authorization']
+      if (auth === 'Bearer new-token') {
+        return jsonResponse({ status: 'success', data: { ok: true } })
+      }
+      return new Response(null, { status: 401 })
+    })
+
+    const client = createApiClient({ baseUrl: 'https://api.test', tokenStorage })
+    const results = await Promise.all([client.request('/api/x'), client.request('/api/y')])
+
+    expect(results).toEqual([{ ok: true }, { ok: true }])
+    expect(refreshCalls).toBe(1)
+    expect(tokenStorage.getRefreshToken()).toBe('refresh-2')
+    // 2 initial attempts + 1 shared refresh + 2 retries
+    expect(fetchMock).toHaveBeenCalledTimes(5)
+  })
+
+  it('skips the refresh call when the stored token already changed (e.g. another tab refreshed)', async () => {
+    const tokenStorage = createMemoryTokenStorage()
+    tokenStorage.setTokens({ accessToken: 'old-token', refreshToken: 'refresh-1' })
+
+    fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/api/auth/refresh')) {
+        throw new Error('refresh endpoint must not be hit')
+      }
+      const auth = (init.headers as Record<string, string>)['Authorization']
+      if (auth === 'Bearer old-token') {
+        // Simulate another tab rotating the tokens while this request was in flight.
+        tokenStorage.setTokens({ accessToken: 'new-token', refreshToken: 'refresh-2' })
+        return new Response(null, { status: 401 })
+      }
+      return jsonResponse({ status: 'success', data: { ok: true } })
+    })
+
+    const client = createApiClient({ baseUrl: 'https://api.test', tokenStorage })
+
+    expect(await client.request('/api/x')).toEqual({ ok: true })
+    // Initial attempt + retry with the token the other tab stored — no refresh call.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('does not attempt a refresh when there is no refresh token, and surfaces the 401', async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 401, statusText: 'Unauthorized' }))
     const client = createApiClient({ baseUrl: 'https://api.test', tokenStorage: createMemoryTokenStorage() })

@@ -107,6 +107,12 @@ export async function getWidget(id: string) {
 - attaches `Authorization: Bearer <token>` whenever a token is present;
 - on a `401` with a refresh token available, calls `POST {refreshEndpoint}` (default
   `/api/auth/refresh`) once and retries the original request once with the new token;
+- refreshes are single-flight: concurrent `401`s in one tab share a single refresh call,
+  tabs coordinate via the Web Locks API where available, and a caller that finds the
+  stored access token already rotated (by another caller or tab) reuses it instead of
+  refreshing again — safe against rotate-and-blacklist backends (e.g. simplejwt with
+  `ROTATE_REFRESH_TOKENS` + `BLACKLIST_AFTER_ROTATION`), where each refresh token is
+  strictly single-use;
 - on refresh failure, clears both tokens, calls `onAuthFailure`, and throws;
 - unwraps a `{status, data}` success envelope automatically (falls back to the raw body
   if it isn't wrapped, so this also works against non-enveloped endpoints);
