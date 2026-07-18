@@ -46,7 +46,7 @@ def test_publish_client_is_cached_per_url():
     assert len(fake.published) == 2
 
 
-def test_sse_response_shape():
+def test_sse_response_shape(db):
     # Constructing the response must not touch Redis — the generator only runs when
     # consumed, so auth-rejection paths and tests never open a connection.
     response = realtime.sse_response("redis://nowhere:1", "events:h1")

@@ -32,9 +32,7 @@ def publish(redis_url: str, channel: str, message: str) -> None:
     try:
         client = _clients.get(redis_url)
         if client is None:
-            client = redis.Redis.from_url(
-                redis_url, socket_connect_timeout=1, socket_timeout=1
-            )
+            client = redis.Redis.from_url(redis_url, socket_connect_timeout=1, socket_timeout=1)
             _clients[redis_url] = client
         client.publish(channel, message)  # pyright: ignore[reportAttributeAccessIssue]
     except Exception:

@@ -38,9 +38,7 @@ def test_stream_is_rewound_for_downstream_readers():
 
 
 def test_noop_when_content_length_present():
-    request = RequestFactory().post(
-        "/anything", data=b"1234", content_type="application/json"
-    )
+    request = RequestFactory().post("/anything", data=b"1234", content_type="application/json")
     request._stream = io.BytesIO(b"different")  # must NOT be measured
     assert _run(request) == "4"
 

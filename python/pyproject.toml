@@ -1,18 +1,23 @@
 [project]
 name = "django-drf-foundation"
-version = "0.5.0"
+version = "0.6.0"
 description = "Pydantic-inside-DRF wire schemas, deny-by-default permissions, and generated-TS-types plumbing for Django + DRF APIs."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "dj-database-url>=3.0",
     "django>=5.0",
     "djangorestframework>=3.15",
     "pydantic>=2.5",
 ]
 
 [project.optional-dependencies]
+auth = ["djangorestframework-simplejwt>=5.5"]
 celery = ["celery>=5.3", "redis>=5.0"]
 realtime = ["redis>=5.0"]
+
+[project.entry-points.pytest11]
+drf_foundation = "drf_foundation.pytest_plugin"
 
 [build-system]
 requires = ["hatchling"]
@@ -27,6 +32,7 @@ dev = [
     "pytest-django>=4.8",
     "ruff>=0.6",
     "celery>=5.3",
+    "djangorestframework-simplejwt>=5.5",
     "redis>=5.0",
 ]
 
@@ -37,7 +43,8 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "ANN"]
 ignore = ["ANN401"]  # Any is the correct type for a recursive JSON-like structure
-per-file-ignores = { "tests/*" = ["ANN"] }
+# pytest_plugin: fixture return annotations add noise, matching tests convention.
+per-file-ignores = { "tests/*" = ["ANN"], "src/drf_foundation/pytest_plugin.py" = ["ANN"] }
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "tests.django_settings"
