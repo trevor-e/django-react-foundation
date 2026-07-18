@@ -1,6 +1,6 @@
 [project]
 name = "django-drf-foundation"
-version = "0.2.0"
+version = "0.4.0"
 description = "Pydantic-inside-DRF wire schemas, deny-by-default permissions, and generated-TS-types plumbing for Django + DRF APIs."
 readme = "README.md"
 requires-python = ">=3.12"

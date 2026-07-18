@@ -64,20 +64,27 @@ Only reach for a standalone OLAP service when you genuinely outgrow embedded:
 Below those thresholds, the embedded engine wins on simplicity every time. If you think you
 need the cluster, write down which threshold you crossed first.
 
-### 1b. Database connections: persistent + health-checked
+### 1b. Database connections: pooled, not persistent
 
-Under a threaded WSGI server (gunicorn `--threads`, not ASGI), set `CONN_MAX_AGE` so a
-request reuses a connection instead of paying a fresh TCP+auth handshake every time, and
-pair it with `CONN_HEALTH_CHECKS` so a connection killed by a platform-side redeploy or a
-network blip gets discarded and reconnected instead of raising mid-request:
+Reusing a connection instead of paying a fresh TCP+auth handshake per request matters
+either way; *how* depends on the server model.
+
+- **Threaded WSGI** (gunicorn `--threads`): `CONN_MAX_AGE` + `CONN_HEALTH_CHECKS`
+  works, because worker threads are long-lived.
+- **ASGI** (the default serving stack, §11a): each request's sync code runs on its own
+  short-lived thread (asgiref `ThreadSensitiveContext`), so thread-affine persistent
+  connections strand and *leak*. Use psycopg3's built-in pool instead — it checks
+  connections out per use and owns reconnection. Django rejects `pool` combined with
+  `CONN_MAX_AGE`/`CONN_HEALTH_CHECKS`.
 
 ```python
-DATABASES = {
-    "default": {
-        ...
-        "CONN_MAX_AGE": int(os.environ.get("POSTGRES_CONN_MAX_AGE", "60")),
-        "CONN_HEALTH_CHECKS": True,
-    }
+DATABASES = {"default": {...}}
+# Explicit bounds, always: bare `"pool": True` means a FIXED pool of 4 opened eagerly
+# — and it's per PROCESS. Web, beat, and every Celery prefork child each get one, so
+# defaults × an uncapped worker (see §11a's --concurrency gotcha) can brush Postgres's
+# ~100-connection limit while idle.
+DATABASES["default"].setdefault("OPTIONS", {})["pool"] = {
+    "min_size": 1, "max_size": 5, "timeout": 10,  # psycopg[binary,pool]
 }
 ```
 
@@ -306,6 +313,60 @@ true over time.
 - **Frontend → Cloudflare Pages**, auto-built from the same repo, calls the backend at a
   custom `api.` domain. Its build is `tsc && vite build` (not lint), so a clean build is
   what gates the deploy.
+
+### 11a. App server: Granian/ASGI (same server in dev and prod)
+
+Serve `config.asgi:application` with **Granian** everywhere — prod web role and dev
+(`--reload`, via the `granian[reload]` dev-only extra) — so async behavior (SSE
+streams, async views) is testable locally. App code stays sync DRF; only genuinely
+streaming views are written async. Hard-won flag rules:
+
+- `--interface asginl` — ASGI *without* the lifespan protocol, which Django doesn't
+  implement. Plain `asgi` boots with a warning; `asginl` says what you mean.
+- **Never pass `--blocking-threads` on ASGI.** It's a WSGI-mode knob and granian
+  hard-errors on >1 — as a crash-loop *in prod only* if dev never passed it. Sync-view
+  concurrency under ASGI comes from asgiref's per-request threads inside Django;
+  bound it with `--backpressure` if it ever needs a cap (remember each open SSE
+  stream holds a backpressure slot for its lifetime).
+- **`--workers-kill-timeout 5` is mandatory once anything streams.** Granian's
+  graceful stop waits for in-flight requests, and an open SSE stream never finishes —
+  without the timeout, every redeploy/reload wedges on the first connected client.
+- **`--respawn-failed-workers`** (default off): with `--workers 1`, a crashed worker
+  otherwise leaves a live container serving nothing — invisible to the platform's
+  restart policy, which watches the main process.
+- Dev `--reload` should ignore tool churn: `--reload-ignore-dirs .ruff_cache
+  --reload-ignore-dirs .pytest_cache --reload-ignore-patterns '\.tmp\.'`.
+- **Proxied chunked bodies**: proxies (Cloudflare orange-cloud) re-frame POSTs as
+  `Transfer-Encoding: chunked` with no `Content-Length`; DRF treats missing
+  CONTENT_LENGTH as an empty body even though Django's ASGI handler buffered it fine.
+  Install `drf_foundation.middleware.ChunkedContentLengthMiddleware` first in
+  `MIDDLEWARE`. Testing gotcha: curl only sends genuine chunked framing with
+  `--http1.1`; over HTTP/2 a manual `Transfer-Encoding` header embeds framing bytes
+  into the body and masquerades as a server bug.
+- Celery on the same host image: **always pass `--concurrency`** — prefork defaults
+  to the *host's* core count, which on shared platforms (Railway) means e.g. 32
+  Django children (~4GB idle) for a queue doing nothing.
+
+### 11b. Deploy healthchecks: worth it, and three silent killers
+
+Set the platform healthcheck (Railway: `healthcheckPath=/api/health`) so a deploy that
+can't serve **never takes traffic** — without it, "container started" counts as
+success, every deploy has a 502 cutover window, and a crash-looping build replaces a
+working one. But the probe fails *silently* three ways; wire all three before
+enabling:
+
+1. **ALLOWED_HOSTS**: Railway probes with `Host: healthcheck.railway.app` — add it to
+   `ALLOWED_HOSTS` or every probe 400s.
+2. **You won't see those 400s**: Django routes `django.security.DisallowedHost` to
+   the *null log handler* by default. A host-rejected healthcheck produces zero log
+   lines while the deploy times out.
+3. **SSL redirect**: probes arrive as plain HTTP with no `X-Forwarded-Proto`, so
+   `SECURE_SSL_REDIRECT` 301s them (also unlogged). Exempt the path:
+   `SECURE_REDIRECT_EXEMPT = [r"^api/health$"]` (leading slash stripped).
+
+Verify locally before shipping: boot granian with prod-mode env and assert the probe
+shape passes — `curl -H 'Host: healthcheck.railway.app' http://localhost:8000/api/health`
+→ 200, any other path → 301.
 
 ---
 

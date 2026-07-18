@@ -11,3 +11,6 @@ export { createApiClient, ApiRequestError } from './apiClient'
 export type { ApiClient, ApiClientOptions, RefreshResponse } from './apiClient'
 
 export { createQueryKeyFactory } from './queryKeys'
+
+export { readEventStream } from './sse'
+export type { SseFrame, SseHandlers } from './sse'
