@@ -135,7 +135,7 @@ wheels = [
 
 [[package]]
 name = "django-drf-foundation"
-version = "0.4.0"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "django" },
@@ -146,6 +146,9 @@ dependencies = [
 [package.optional-dependencies]
 celery = [
     { name = "celery" },
+    { name = "redis" },
+]
+realtime = [
     { name = "redis" },
 ]
 
@@ -165,8 +168,9 @@ requires-dist = [
     { name = "djangorestframework", specifier = ">=3.15" },
     { name = "pydantic", specifier = ">=2.5" },
     { name = "redis", marker = "extra == 'celery'", specifier = ">=5.0" },
+    { name = "redis", marker = "extra == 'realtime'", specifier = ">=5.0" },
 ]
-provides-extras = ["celery"]
+provides-extras = ["celery", "realtime"]
 
 [package.metadata.requires-dev]
 dev = [

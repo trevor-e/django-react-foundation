@@ -465,7 +465,9 @@ Why this shape:
 7. `Makefile` with the targets in §9 (including `gen-api-types` / `check-api-schema`).
 8. CI: tests + lint + schema-drift.
 9. `Dockerfile` (`uv sync`) + `railway.json` (`watchPatterns`, pre-deploy migrate) +
-   `entrypoint.sh` (`PROCESS` roles).
+   `entrypoint.sh` (`PROCESS` roles) — **copy `templates/entrypoint.sh` from this repo**;
+   its granian/celery flags encode §11a's hard-won rules. Then wire §11b's healthcheck
+   (ALLOWED_HOSTS probe host, redirect exemption) before enabling it.
 10. Seed `docs/` with an architecture doc + this blueprint, and a `CLAUDE.md` docs table.
 11. `openspec init` (or copy an existing `openspec/` skeleton) + add the CLAUDE.md snippet
     in §16 so change management is spec-driven from day one.

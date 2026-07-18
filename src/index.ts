@@ -14,3 +14,5 @@ export { createQueryKeyFactory } from './queryKeys'
 
 export { readEventStream } from './sse'
 export type { SseFrame, SseHandlers } from './sse'
+export { createRealtimeSync } from './realtimeSync'
+export type { RealtimeSync, RealtimeSyncOptions } from './realtimeSync'

@@ -1,6 +1,6 @@
 [project]
 name = "django-drf-foundation"
-version = "0.4.0"
+version = "0.5.0"
 description = "Pydantic-inside-DRF wire schemas, deny-by-default permissions, and generated-TS-types plumbing for Django + DRF APIs."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,6 +12,7 @@ dependencies = [
 
 [project.optional-dependencies]
 celery = ["celery>=5.3", "redis>=5.0"]
+realtime = ["redis>=5.0"]
 
 [build-system]
 requires = ["hatchling"]
