@@ -1,0 +1,14 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile",
+    "watchPatterns": ["backend/**", "railway.json"]
+  },
+  "_comment": "This file is shared by all three services (web/worker/beat), so nothing service-specific belongs here. Set healthcheckPath=/api/health on the WEB service only, in its dashboard settings — worker/beat expose no port and a healthcheck would fail their deploys. The preDeployCommand is gated to web for the same reason (ungated, three services race migrate against one Postgres).",
+  "deploy": {
+    "preDeployCommand": "sh -c 'if [ \"$PROCESS\" = web ]; then python manage.py migrate --noinput; fi'",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  }
+}

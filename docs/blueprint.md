@@ -450,7 +450,22 @@ Why this shape:
 
 ---
 
-## 15. Bootstrapping a new project — checklist
+## 15. Bootstrapping a new project — one command
+
+```sh
+scripts/new-project.sh <name> <target-dir>
+```
+
+stamps out `template/` — a complete working project: ASGI serving (§11a) with every
+hard-won granian flag, pooled DB (§1b), healthcheck-safe security headers (§11b),
+email-login auth matching the apiClient contract, wire-schema pipeline (§3), fail-closed
+prod checks, Makefile/dev-stack scripts, CI, Dockerfile + railway.json. `make install`,
+`make dev`, `make test` work immediately; the stamped README carries the once-per-project
+deploy checklist. The template pins both foundation packages; bump the pins to adopt
+fixes.
+
+The original by-hand checklist, kept for understanding what the template gives you
+(and for retrofitting an existing project):
 
 1. `uv init` backend; add Django, DRF, pydantic, dev group (pytest, pyrefly, ruff, stubs).
 2. `uv add "django-drf-foundation @ git+https://github.com/trevor-e/django-react-foundation.git@v0.1.0#subdirectory=python"`

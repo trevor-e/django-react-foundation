@@ -10,6 +10,16 @@ is one piece of — repo layout, testing/CI/deploy conventions, and the spec-dri
 (OpenSpec) change-management workflow, all meant to be reused the same way across every
 project, not just this one.
 
+## New project in one command
+
+```sh
+scripts/new-project.sh myapp ~/dev/myapp
+```
+
+stamps out `template/` — a full Django+DRF (ASGI/granian) + React/Vite project wired to
+both packages, with auth, tests, CI, dev-stack tooling, and deploy config. See blueprint
+§15.
+
 ## Repo layout — two packages, one repo, installed independently
 
 ```

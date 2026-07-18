@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: __PROJECT___test
+          POSTGRES_USER: __PROJECT___test
+          POSTGRES_PASSWORD: __PROJECT___test
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U __PROJECT___test"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run pytest
+      - run: uv run ruff check . && uv run ruff format --check .
+      - run: uv run pyrefly check
+      # Schema drift guard (blueprint §3d): the committed api-schema.json must match
+      # the Python wire schemas.
+      - run: uv run python manage.py export_api_schema --check
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm run build
