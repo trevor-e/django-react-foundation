@@ -1,18 +1,8 @@
-"""Production-environment detection, shared by `settings.py` and `config/checks.py`.
+"""Project wrapper over the package's production detection — one place to name the
+project's own env marker; settings.py and checks.py both import from here."""
 
-Lives outside `checks.py` so `settings.py` can import it during Django's own settings
-load (importing from `checks.py` there would risk a premature app-registry import,
-since `checks.py` sits in an installed app).
-"""
-
-import os
-
-# Railway injects these into every service; their presence is a non-overridable
-# production marker — no env var may declare a Railway environment non-production.
-_RAILWAY_MARKERS = ("RAILWAY_ENVIRONMENT_NAME", "RAILWAY_PROJECT_ID", "RAILWAY_PUBLIC_DOMAIN")
+from drf_foundation.env import is_production as _is_production
 
 
 def is_production() -> bool:
-    if os.environ.get("APP_ENV", "").lower() == "production":
-        return True
-    return any(os.environ.get(marker) for marker in _RAILWAY_MARKERS)
+    return _is_production("APP_ENV")

@@ -8,11 +8,15 @@ connections (§1b), and healthcheck-safe production security headers (§11b).
 """
 
 import os
-from datetime import timedelta
 from pathlib import Path
 
-import dj_database_url
 from corsheaders.defaults import default_headers
+from drf_foundation.settings_helpers import (
+    allowed_hosts_from_env,
+    pooled_database,
+    production_security_settings,
+    simple_jwt_defaults,
+)
 
 from config.env import is_production
 
@@ -24,13 +28,8 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-local-dev-only-do-not
 
 DEBUG = os.environ.get("DEBUG", "true").lower() == "true"
 
-ALLOWED_HOSTS = [h for h in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h]
-if os.environ.get("RAILWAY_PUBLIC_DOMAIN"):
-    ALLOWED_HOSTS.append(os.environ["RAILWAY_PUBLIC_DOMAIN"])
-# Railway's deploy healthcheck probes with this Host header (blueprint §11b); without
-# it every probe 400s — and invisibly (django.security.DisallowedHost logs to the
-# null handler by default).
-ALLOWED_HOSTS.append("healthcheck.railway.app")
+# Env hosts + the platform domain + the healthcheck prober's Host (blueprint §11b).
+ALLOWED_HOSTS = allowed_hosts_from_env()
 
 
 INSTALLED_APPS = [
@@ -87,28 +86,9 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 
 
-# Database — Postgres only. DATABASE_URL (Railway's convention) wins when set;
-# otherwise POSTGRES_* for local dev. psycopg3's built-in pool, never CONN_MAX_AGE
-# (blueprint §1b): under ASGI each request's sync code runs on its own short-lived
-# thread, so thread-affine persistent connections strand and leak. Explicit bounds
-# because bare `pool: True` is an eager fixed-4 per process.
-_DB_POOL = {"min_size": 1, "max_size": 5, "timeout": 10}
-if os.environ.get("DATABASE_URL"):
-    _default_db: dict = dict(dj_database_url.parse(os.environ["DATABASE_URL"]))
-    _default_db["OPTIONS"] = {**_default_db.get("OPTIONS", {}), "pool": _DB_POOL}
-    DATABASES = {"default": _default_db}
-else:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.environ.get("POSTGRES_DB", "__PROJECT__"),
-            "USER": os.environ.get("POSTGRES_USER", "__PROJECT__"),
-            "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "__PROJECT__"),
-            "HOST": os.environ.get("POSTGRES_HOST", "localhost"),
-            "PORT": os.environ.get("POSTGRES_PORT", "5432"),
-            "OPTIONS": {"pool": _DB_POOL},
-        }
-    }
+# Postgres via DATABASE_URL or POSTGRES_*, pooled — never CONN_MAX_AGE under ASGI
+# (blueprint §1b; the helper carries the doctrine and the pool bounds).
+DATABASES = {"default": pooled_database(default_name="__PROJECT__")}
 
 AUTH_USER_MODEL = "accounts.User"
 
@@ -174,15 +154,8 @@ if is_production():
 WIRE_SCHEMA_OUTPUT = BASE_DIR.parent / "frontend" / "src" / "types" / "api-schema.json"
 WIRE_SCHEMA_TITLE = "__PROJECT__ API"
 
-SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=14),
-    "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": True,
-    "AUTH_HEADER_TYPES": ("Bearer",),
-    "USER_ID_FIELD": "id",
-    "USER_ID_CLAIM": "user_id",
-}
+# Rotating refresh tokens + blacklist, matching the apiClient contract.
+SIMPLE_JWT = simple_jwt_defaults()
 
 # CORS: local dev frontend + prod frontend origin(s), comma-separated (blueprint §14).
 CORS_ALLOWED_ORIGINS = [
@@ -220,20 +193,8 @@ if SENTRY_DSN:
         send_default_pii=False,
     )
 
-# Production security headers, gated on the same is_production() as the fail-closed
-# checks (config/checks.py refuses to boot production if this block is weakened).
+# Production security headers (healthcheck-safe SSL redirect included), gated on
+# the same is_production() as the fail-closed checks, which refuse to boot
+# production if this block is absent or weakened (blueprint §11b).
 if is_production():
-    # Railway terminates TLS at its edge and forwards over HTTP with one proxy hop;
-    # without this, SECURE_SSL_REDIRECT would redirect-loop.
-    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-    SECURE_SSL_REDIRECT = True
-    # Railway's healthcheck probes over plain HTTP with no X-Forwarded-Proto —
-    # without this exemption the redirect 301s every probe and no deploy ever goes
-    # healthy (blueprint §11b).
-    SECURE_REDIRECT_EXEMPT = [r"^api/health$"]
-    SECURE_HSTS_SECONDS = 31536000
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = False
-    SECURE_CONTENT_TYPE_NOSNIFF = True
-    SECURE_REFERRER_POLICY = "same-origin"
-    SESSION_COOKIE_SECURE = True
+    globals().update(production_security_settings())

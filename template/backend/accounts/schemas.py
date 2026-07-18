@@ -18,19 +18,6 @@ class RegisterRequest(Schema):
         return value
 
 
-class LoginRequest(Schema):
-    email: str
-    password: str
-
-
-class AuthTokens(Schema):
-    """Matches react-vite-foundation's apiClient contract: `access_token` +
-    `refresh_token`, with `/api/auth/refresh` accepting `{"refresh_token": ...}`."""
-
-    access_token: str
-    refresh_token: str
-
-
 class Me(Schema):
     id: int
     email: str
@@ -39,11 +26,3 @@ class Me(Schema):
 
 class UpdateMeRequest(Schema):
     name: str | None = None
-
-
-class LogoutRequest(Schema):
-    refresh_token: str
-
-
-class LogoutResult(Schema):
-    detail: str
