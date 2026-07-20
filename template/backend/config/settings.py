@@ -15,6 +15,7 @@ from drf_foundation.settings_helpers import (
     allowed_hosts_from_env,
     pooled_database,
     production_security_settings,
+    redis_cache,
     simple_jwt_defaults,
 )
 
@@ -116,13 +117,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Shared cache for DRF throttle counters: must be shared across every server
 # worker/replica, or each process throttles independently and the effective rate
-# multiplies by worker count. test_settings.py overrides to LocMem.
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
-    },
-}
+# multiplies by worker count. redis_cache() includes socket timeouts so a dead
+# route to Redis fails fast instead of hanging every cache-touching request (§1c).
+# test_settings.py overrides to LocMem.
+CACHES = {"default": redis_cache()}
 
 # DRF + drf_foundation: deny-by-default permissions, envelope exception handler
 # (blueprint §3a, §4), a generous global backstop throttle plus tight rates on the

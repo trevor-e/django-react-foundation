@@ -88,6 +88,31 @@ DATABASES["default"].setdefault("OPTIONS", {})["pool"] = {
 }
 ```
 
+### 1c. Bound every dial: connect timeouts on DB and cache
+
+Field lesson (2026-07-19, pystonks on Railway): a platform-mesh route black-holed —
+DNS resolved, SYNs silently dropped, no RST. Every DB connect then hangs for the OS
+default (~130s), each hung request permanently occupies a worker, and with a small
+worker pool the whole site freezes while looking "up" (CORS preflights and 404s,
+which never touch the DB, still answer). Zero error logs, because nothing ever
+*fails* — it just waits.
+
+Two rules, both encoded in the helpers so they flow with pin bumps:
+
+- **Postgres**: the pool's `timeout` bounds waiting for a *slot*; `connect_timeout`
+  bounds the *dial*. You need both — `pooled_database()` sets `connect_timeout=5`
+  alongside the pool, which migrations and Celery tasks inherit too (they use the
+  same `DATABASES`).
+- **Redis cache**: redis-py's default is `socket_timeout=None` — block forever.
+  Django's built-in `RedisCache` passes `OPTIONS` through to the connection pool, so
+  `redis_cache()` sets `socket_connect_timeout`/`socket_timeout` (2s). Without it,
+  any cache-touching path (DRF throttle counters, sessions) inherits the unbounded
+  hang when the route to Redis dies.
+
+The failure you want when infrastructure breaks is *loud and fast*: 500s in the
+logs within seconds, a liveness endpoint that still answers (§11b), and worker
+threads that recycle — not a silent wedge you diagnose from the absence of logs.
+
 ---
 
 ## 2. Repo layout

@@ -4,6 +4,7 @@ from drf_foundation.settings_helpers import (
     allowed_hosts_from_env,
     pooled_database,
     production_security_settings,
+    redis_cache,
     simple_jwt_defaults,
 )
 
@@ -24,6 +25,36 @@ def test_pooled_database_from_postgres_vars():
 def test_pooled_database_bounds_are_tunable():
     config = pooled_database(max_size=10, env={})
     assert config["OPTIONS"]["pool"]["max_size"] == 10
+
+
+def test_pooled_database_sets_a_connect_timeout():
+    # The dial itself must be bounded, not just the pool-slot wait: a black-holed
+    # route (SYNs dropped, no RST) otherwise hangs each connect for the OS
+    # default (~130s) — the 2026-07-19 outage mode.
+    for config in (
+        pooled_database(env={"DATABASE_URL": "postgresql://u:p@db.internal:5432/app"}),
+        pooled_database(env={}),
+    ):
+        assert config["OPTIONS"]["connect_timeout"] == 5
+
+
+def test_pooled_database_connect_timeout_is_tunable():
+    config = pooled_database(connect_timeout=3, env={})
+    assert config["OPTIONS"]["connect_timeout"] == 3
+
+
+def test_redis_cache_from_url_with_socket_timeouts():
+    config = redis_cache(env={"REDIS_URL": "redis://:secret@redis.internal:6379"})
+    assert config["BACKEND"] == "django.core.cache.backends.redis.RedisCache"
+    assert config["LOCATION"] == "redis://:secret@redis.internal:6379"
+    # redis-py's default is socket_timeout=None — block forever; never ship that.
+    assert config["OPTIONS"]["socket_connect_timeout"] == 2.0
+    assert config["OPTIONS"]["socket_timeout"] == 2.0
+
+
+def test_redis_cache_from_host_port_vars():
+    config = redis_cache(env={"REDIS_HOST": "cache", "REDIS_PORT": "6380"})
+    assert config["LOCATION"] == "redis://cache:6380"
 
 
 def test_production_security_settings_exempts_the_health_path():

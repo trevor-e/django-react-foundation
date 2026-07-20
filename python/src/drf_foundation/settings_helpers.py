@@ -27,6 +27,7 @@ def pooled_database(
     min_size: int = 1,
     max_size: int = 5,
     timeout: int = 10,
+    connect_timeout: int = 5,
     env: os._Environ | dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """The `DATABASES["default"]` entry: DATABASE_URL (platform convention) when set,
@@ -36,12 +37,24 @@ def pooled_database(
     own short-lived thread, so thread-affine persistent connections strand and leak.
     Bounds are explicit because bare ``pool: True`` is an eager fixed-4 *per process*
     — web, beat, and every Celery prefork child each get one.
+
+    Two distinct timeouts, both required (§1c — the 2026-07-19 pystonks outage):
+    ``timeout`` bounds how long a request waits for a pool *slot*; ``connect_timeout``
+    bounds the TCP+auth *dial* itself. Without the latter, a black-holed route (SYNs
+    dropped, no RST — the platform-mesh failure mode) hangs each connection attempt
+    for the OS default (~130s), and requests, migrations, and Celery tasks all
+    inherit it. With both, an unreachable database turns into fast, loggable errors
+    instead of silently starving the worker pool.
     """
     e = os.environ if env is None else env
     pool = {"min_size": min_size, "max_size": max_size, "timeout": timeout}
     if e.get("DATABASE_URL"):
         config: dict[str, Any] = dict(dj_database_url.parse(e["DATABASE_URL"]))
-        config["OPTIONS"] = {**config.get("OPTIONS", {}), "pool": pool}
+        config["OPTIONS"] = {
+            **config.get("OPTIONS", {}),
+            "pool": pool,
+            "connect_timeout": connect_timeout,
+        }
         return config
     return {
         "ENGINE": "django.db.backends.postgresql",
@@ -50,7 +63,38 @@ def pooled_database(
         "PASSWORD": e.get("POSTGRES_PASSWORD", default_name),
         "HOST": e.get("POSTGRES_HOST", "localhost"),
         "PORT": e.get("POSTGRES_PORT", "5432"),
-        "OPTIONS": {"pool": pool},
+        "OPTIONS": {"pool": pool, "connect_timeout": connect_timeout},
+    }
+
+
+def redis_cache(
+    *,
+    connect_timeout: float = 2.0,
+    socket_timeout: float = 2.0,
+    env: os._Environ | dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """The `CACHES["default"]` entry: REDIS_URL when set (platform convention —
+    required when the broker needs auth credentials), REDIS_HOST/REDIS_PORT
+    otherwise, always with socket timeouts.
+
+    Django's built-in RedisCache passes OPTIONS through to redis-py's connection
+    pool, and redis-py's default is ``socket_timeout=None`` — block forever. Any
+    cache-touching request path (DRF throttles, session cache, page cache) then
+    inherits an unbounded hang when the route to Redis black-holes (§1c). Two
+    seconds is generous for an in-network cache; a cache that can't answer in two
+    seconds should be treated as down.
+    """
+    e = os.environ if env is None else env
+    url = e.get("REDIS_URL") or (
+        f"redis://{e.get('REDIS_HOST', 'localhost')}:{e.get('REDIS_PORT', '6379')}"
+    )
+    return {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": url,
+        "OPTIONS": {
+            "socket_connect_timeout": connect_timeout,
+            "socket_timeout": socket_timeout,
+        },
     }
 
 
