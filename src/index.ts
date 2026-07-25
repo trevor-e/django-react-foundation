@@ -4,8 +4,11 @@ export type { ApiConfigOptions } from './apiConfig'
 export {
   createLocalStorageTokenStorage,
   createMemoryTokenStorage,
+  DEFAULT_ACCESS_TOKEN_KEY,
 } from './tokenStorage'
 export type { TokenStorage, LocalStorageTokenKeys } from './tokenStorage'
+
+export { liftAuthGate, AUTH_GATE_ATTRIBUTE } from './authGate'
 
 export { createApiClient, ApiRequestError } from './apiClient'
 export type { ApiClient, ApiClientOptions, RefreshResponse } from './apiClient'

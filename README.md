@@ -185,6 +185,7 @@ prerenderSite({
   siteOrigin: 'https://example.com',
   routes: PUBLIC_ROUTES, // [{ path, title, description, changefreq?, priority?, jsonLd? }]
   render: renderRoute,
+  authGate: true, // hide the prerendered landing pre-paint for logged-in users
 })
 ```
 
@@ -195,6 +196,19 @@ emitted as `landing.html` behind a `_redirects` rewrite; other routes become fla
 trailing-slash 308. Keep the SSR entry's import graph tiny (marketing pages only)
 — rendering your whole app in Node drags every dependency into the SSG pass. No
 browser is required at build time, so this runs on any CI or Pages build image.
+
+`authGate` fixes the flash that contract otherwise gives logged-in users on `/`:
+the static marketing HTML paints before the JS bundle runs, then the client-side
+auth check redirects. The option injects a blocking head script into
+`landing.html` (only) that checks localStorage for the access-token key —
+presence only, the value is never read into the page — and hides `#root`
+pre-paint; the app lifts the gate via `liftAuthGate()` (root export) in a mount
+effect on its landing-or-app switch, once React has replaced the prerendered
+DOM. When `dist/_headers` carries a `script-src 'self'` CSP, exactly that script
+is allowlisted by a sha256 hash computed from the injected bytes — no
+`'unsafe-inline'`, and header and script can't drift. Pass
+`{ storageKey: '...' }` if your `createLocalStorageTokenStorage` overrides the
+default key.
 
 ### 6. Auth-page UI (`/auth-ui`)
 

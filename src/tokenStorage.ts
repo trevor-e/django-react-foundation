@@ -12,10 +12,14 @@ export interface LocalStorageTokenKeys {
   refreshTokenKey?: string
 }
 
+/** Default localStorage key for the access token — shared with the prerender
+ * auth gate (authGate.ts) so the two can't silently disagree. */
+export const DEFAULT_ACCESS_TOKEN_KEY = 'auth_token'
+
 export function createLocalStorageTokenStorage(
   keys: LocalStorageTokenKeys = {}
 ): TokenStorage {
-  const accessTokenKey = keys.accessTokenKey ?? 'auth_token'
+  const accessTokenKey = keys.accessTokenKey ?? DEFAULT_ACCESS_TOKEN_KEY
   const refreshTokenKey = keys.refreshTokenKey ?? 'refresh_token'
 
   return {

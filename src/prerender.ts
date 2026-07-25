@@ -13,8 +13,10 @@
 // - Other routes render to flat `<route>.html` files: clean-URL resolution serves
 //   the exact canonical URL with no trailing-slash 308 (a `<route>/index.html`
 //   layout would redirect).
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { authGateHeadSnippet, authGateScript } from './authGate'
 
 export interface PrerenderRoute {
   /** Site-relative path: '/', '/guides', '/guides/foo'. */
@@ -37,6 +39,13 @@ export interface PrerenderOptions {
   /** '/' handling: 'landing-rewrite' (default) emits landing.html + _redirects;
    * 'skip' leaves '/' client-rendered (it still appears in the sitemap). */
   rootStrategy?: 'landing-rewrite' | 'skip'
+  /** Hide the prerendered landing pre-paint for logged-in users (authGate.ts):
+   * injects the gate script+style into landing.html's head and, when a
+   * `_headers` file with a `script-src 'self'` directive exists in distDir,
+   * allowlists exactly that script by CSP hash. `true` uses the tokenStorage
+   * default key. Pair with `liftAuthGate()` (root export) in the app's
+   * landing-or-app switch. Only meaningful with rootStrategy 'landing-rewrite'. */
+  authGate?: boolean | { storageKey?: string }
   /** Emit sitemap.xml (default true). */
   sitemap?: boolean
   log?: (message: string) => void
@@ -106,6 +115,26 @@ export function routeOutputFile(
   return `${routePath.slice(1)}.html`
 }
 
+/** CSP source expression for an inline script: 'sha256-<base64>' of its bytes. */
+export function cspScriptHash(js: string): string {
+  return `sha256-${crypto.createHash('sha256').update(js).digest('base64')}`
+}
+
+/** Add an inline-script hash to the `script-src 'self'` directive of a
+ * static-host headers file. Throws when the directive is missing: a headers
+ * file whose CSP we can't extend would silently block the gate script in
+ * production, so the build must fail instead. */
+export function patchScriptSrcHash(headersText: string, hash: string): string {
+  const directive = "script-src 'self'"
+  if (!headersText.includes(directive)) {
+    throw new Error(
+      `prerender authGate: _headers exists but has no \`${directive}\` directive to ` +
+        'extend — add the hash to your CSP manually or align the directive',
+    )
+  }
+  return headersText.replace(directive, `${directive} '${hash}'`)
+}
+
 export function prerenderSite(options: PrerenderOptions): string[] {
   const {
     distDir,
@@ -113,17 +142,22 @@ export function prerenderSite(options: PrerenderOptions): string[] {
     routes,
     render,
     rootStrategy = 'landing-rewrite',
+    authGate = false,
     sitemap = true,
     log = console.log,
   } = options
 
   const template = fs.readFileSync(path.join(distDir, 'index.html'), 'utf8')
   const written: string[] = []
+  const gateKey = typeof authGate === 'object' ? authGate.storageKey : undefined
 
   for (const route of routes) {
     const outFile = routeOutputFile(route.path, rootStrategy)
     if (outFile === null) continue
-    const page = injectPage(template, route, render(route.path), siteOrigin)
+    let page = injectPage(template, route, render(route.path), siteOrigin)
+    if (route.path === '/' && authGate) {
+      page = page.replace('</head>', `${authGateHeadSnippet(gateKey)}</head>`)
+    }
     const outPath = path.join(distDir, outFile)
     fs.mkdirSync(path.dirname(outPath), { recursive: true })
     fs.writeFileSync(outPath, page)
@@ -134,6 +168,19 @@ export function prerenderSite(options: PrerenderOptions): string[] {
   if (rootStrategy === 'landing-rewrite' && routes.some((r) => r.path === '/')) {
     fs.writeFileSync(path.join(distDir, '_redirects'), '/ /landing 200\n')
     written.push('_redirects')
+
+    if (authGate) {
+      const hash = cspScriptHash(authGateScript(gateKey))
+      const headersPath = path.join(distDir, '_headers')
+      if (fs.existsSync(headersPath)) {
+        const patched = patchScriptSrcHash(fs.readFileSync(headersPath, 'utf8'), hash)
+        fs.writeFileSync(headersPath, patched)
+        written.push('_headers')
+        log(`prerender: auth gate on landing.html ('${hash}' added to _headers CSP)`)
+      } else {
+        log(`prerender: auth gate on landing.html (no _headers file; inline hash '${hash}')`)
+      }
+    }
   }
   if (sitemap) {
     fs.writeFileSync(path.join(distDir, 'sitemap.xml'), sitemapXml(routes, siteOrigin))
