@@ -71,7 +71,9 @@ below for the frontend package's.
 ## Frontend package (`react-vite-foundation`, this repo's root)
 
 An auth-aware API client, a local/prod backend URL switch, a TanStack Query key factory,
-and a CLI for generating TypeScript types from the backend's JSON Schema.
+a CLI for generating TypeScript types from the backend's JSON Schema, and opt-in SEO
+subpaths: runtime head-tag management (`/seo`) and a browserless build-time prerenderer
+(`/prerender`).
 
 This package ships plain TypeScript source (no build step) — Vite/esbuild compiles it
 together with the rest of your app. If you ever hit a bundler edge case with a
@@ -151,6 +153,43 @@ export const widgetKeys = createQueryKeyFactory('widgets')
 Run it after `python manage.py export_api_schema` (from the `python/` package) has
 written the schema file. Wraps `json-schema-to-typescript` with `unreachableDefinitions`
 and a `DO NOT EDIT` banner.
+
+### 5. SEO: head tags + build-time prerendering
+
+Two opt-in subpaths (the root export stays react-free):
+
+```ts
+// Any public page — keeps title/description/canonical/og:*/JSON-LD in sync,
+// restoring on unmount. Pairs with static site-wide tags in index.html.
+import { useSeo } from 'react-vite-foundation/seo'
+
+useSeo({
+  title: 'Pricing | example.com',
+  description: 'What it costs.',
+  canonicalUrl: 'https://example.com/pricing',
+})
+```
+
+```js
+// scripts/prerender.mjs — after `vite build` + a tiny `vite build --ssr` entry
+// that exports renderRoute(path) via react-dom/server's renderToString.
+import { prerenderSite } from 'react-vite-foundation/prerender'
+
+prerenderSite({
+  distDir: 'dist',
+  siteOrigin: 'https://example.com',
+  routes: PUBLIC_ROUTES, // [{ path, title, description, changefreq?, priority?, jsonLd? }]
+  render: renderRoute,
+})
+```
+
+The serving contract is the part worth internalizing (documented at the top of
+`src/prerender.ts`): `dist/index.html` stays the untouched SPA fallback; `/` is
+emitted as `landing.html` behind a `_redirects` rewrite; other routes become flat
+`<route>.html` files so clean-URL hosts serve the exact canonical with no
+trailing-slash 308. Keep the SSR entry's import graph tiny (marketing pages only)
+— rendering your whole app in Node drags every dependency into the SSG pass. No
+browser is required at build time, so this runs on any CI or Pages build image.
 
 ### Testing
 
