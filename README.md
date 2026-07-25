@@ -51,16 +51,21 @@ same way it is for `npm publish`, so `python/` never reaches a JS consumer's ins
 
 Not published to any registry — install each package directly from git, pinned to a tag.
 
+The two packages version independently, so release tags are prefixed by side:
+`py-v<version>` for the Python package, `js-v<version>` for the frontend package.
+(Unprefixed `v0.x` tags predate this convention — they still resolve, but new
+releases only get prefixed tags.)
+
 **Backend (Python / uv):**
 
 ```bash
-uv add "django-drf-foundation @ git+https://github.com/trevor-e/django-react-foundation.git@v0.1.0#subdirectory=python"
+uv add "django-drf-foundation @ git+https://github.com/trevor-e/django-react-foundation.git@py-v0.8.0#subdirectory=python"
 ```
 
 **Frontend (JS / pnpm):**
 
 ```bash
-pnpm add "github:trevor-e/django-react-foundation#v0.1.0"
+pnpm add "github:trevor-e/django-react-foundation#js-v0.9.0"
 ```
 
 See [`python/README.md`](python/README.md) for the backend package's setup/usage, and
