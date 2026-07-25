@@ -9,11 +9,15 @@ import { Card, Flex, Heading, IconButton, Text, TextField } from '@radix-ui/them
 import { useId, useState } from 'react'
 import type { ReactNode } from 'react'
 
-/** Default background wash — soft radials on Radix theme color vars so light and
- * dark appearance both work. */
+/** Default background wash — big translucent radial tints over a neutral base.
+ * Each tint fades to alpha-0 of its own hue (via color-mix) rather than from an
+ * opaque swatch to `transparent`, so the ellipse boundaries are invisible — no
+ * hard edges. Theme color vars keep light and dark appearance both working. */
 const DEFAULT_BACKGROUND =
-  'radial-gradient(50rem 30rem at 12% -8%, var(--jade-4), transparent 62%), ' +
-  'radial-gradient(46rem 28rem at 108% 108%, var(--indigo-4), transparent 58%)'
+  'radial-gradient(90% 70% at 10% -5%, color-mix(in oklab, var(--jade-9) 22%, transparent), transparent 68%), ' +
+  'radial-gradient(55% 40% at 92% 18%, color-mix(in oklab, var(--amber-9) 12%, transparent), transparent 70%), ' +
+  'radial-gradient(95% 75% at 88% 108%, color-mix(in oklab, var(--indigo-9) 18%, transparent), transparent 68%), ' +
+  'var(--gray-1)'
 
 export interface AuthLayoutProps {
   /** Brand wordmark rendered as the page heading — pass your router's `<Link>`
