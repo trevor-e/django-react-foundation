@@ -86,3 +86,23 @@ def test_simple_jwt_defaults_rotate_and_blacklist():
     config = simple_jwt_defaults()
     assert config["ROTATE_REFRESH_TOKENS"] is True
     assert config["BLACKLIST_AFTER_ROTATION"] is True
+
+
+def test_pooled_database_bounds_from_env():
+    config = pooled_database(
+        env={"DB_POOL_MIN_SIZE": "2", "DB_POOL_MAX_SIZE": "8", "DB_POOL_TIMEOUT": "5"}
+    )
+    assert config["OPTIONS"]["pool"] == {"min_size": 2, "max_size": 8, "timeout": 5}
+
+
+def test_pooled_database_explicit_args_beat_env():
+    config = pooled_database(max_size=3, env={"DB_POOL_MAX_SIZE": "8"})
+    assert config["OPTIONS"]["pool"]["max_size"] == 3
+
+
+def test_structlog_logging_returns_logging_dict():
+    from drf_foundation.settings_helpers import structlog_logging
+
+    config = structlog_logging(json_output=True)
+    assert config["handlers"]["console"]["formatter"] == "structlog"
+    assert config["loggers"]["django"]["propagate"] is False

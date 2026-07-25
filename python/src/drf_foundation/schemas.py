@@ -108,6 +108,26 @@ def _format_validation_error(exc: ValidationError) -> str:
     return "; ".join(parts)
 
 
+def _nul_path(value: object, path: str = "") -> str | None:
+    """First location in a JSON-like structure whose string contains a NUL byte."""
+    if isinstance(value, str):
+        return (path or "body") if "\x00" in value else None
+    if isinstance(value, dict):
+        for key, item in value.items():
+            key_path = f"{path}.{key}" if path else str(key)
+            if isinstance(key, str) and "\x00" in key:
+                return key_path
+            found = _nul_path(item, key_path)
+            if found is not None:
+                return found
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            found = _nul_path(item, f"{path}[{index}]")
+            if found is not None:
+                return found
+    return None
+
+
 def parse_body[M: BaseModel](data: object, schema: type[M]) -> M:
     """Validate an already-extracted body object into ``schema``, raising 400 on failure.
 
@@ -115,7 +135,16 @@ def parse_body[M: BaseModel](data: object, schema: type[M]) -> M:
     before validation (e.g. an endpoint that accepts a bare JSON array). On a Pydantic
     ``ValidationError`` it raises :class:`RequestValidationError`, which
     :func:`api_exception_handler` renders as the error envelope (HTTP 400).
+
+    NUL (``0x00``) bytes are rejected up front, anywhere in the structure: JSON allows
+    ``\\u0000`` but Postgres ``text`` cannot store it, so without this guard every
+    string column is a client-triggerable ``DataError`` 500 at the database (found by
+    API fuzzing). Rejecting here — the one choke point every request body passes
+    through — beats per-field validators nobody remembers to add.
     """
+    nul = _nul_path(data)
+    if nul is not None:
+        raise RequestValidationError(f"{nul}: NUL (0x00) bytes are not allowed")
     try:
         return schema.model_validate(data)
     except ValidationError as exc:

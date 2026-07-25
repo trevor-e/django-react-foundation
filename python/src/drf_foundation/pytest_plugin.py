@@ -42,3 +42,25 @@ def make_authed_client():
         return client
 
     return _make
+
+
+@pytest.fixture
+def keep_test_connection():
+    """For tests that drive the real WSGI/ASGI handler (Schemathesis fuzzing, a raw
+    werkzeug client) instead of Django's test client: the real handler's request
+    signals run `close_old_connections`, which kills the connection pytest-django's
+    atomic wrapper owns ("Cannot open a new connection in an atomic block"). Django's
+    own test client disconnects that handler around every request; this fixture does
+    the same for the duration of the test.
+
+    Gotcha: nothing in the test may use Django's test client while this is active —
+    its handler unconditionally re-connects the signal in a `finally`.
+    """
+    from django.core.signals import request_finished, request_started
+    from django.db import close_old_connections
+
+    request_started.disconnect(close_old_connections)
+    request_finished.disconnect(close_old_connections)
+    yield
+    request_started.connect(close_old_connections)
+    request_finished.connect(close_old_connections)

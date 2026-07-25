@@ -24,9 +24,9 @@ import dj_database_url
 def pooled_database(
     *,
     default_name: str = "app",
-    min_size: int = 1,
-    max_size: int = 5,
-    timeout: int = 10,
+    min_size: int | None = None,
+    max_size: int | None = None,
+    timeout: int | None = None,
     connect_timeout: int = 5,
     env: os._Environ | dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -45,9 +45,18 @@ def pooled_database(
     for the OS default (~130s), and requests, migrations, and Celery tasks all
     inherit it. With both, an unreachable database turns into fast, loggable errors
     instead of silently starving the worker pool.
+
+    Pool bounds resolve from the env when not passed explicitly — ``DB_POOL_MIN_SIZE``
+    (default 1), ``DB_POOL_MAX_SIZE`` (default 5), ``DB_POOL_TIMEOUT`` (default 10s)
+    — so each deploy role (web / worker / beat) can be sized independently via
+    platform vars, no code change.
     """
     e = os.environ if env is None else env
-    pool = {"min_size": min_size, "max_size": max_size, "timeout": timeout}
+    pool = {
+        "min_size": min_size if min_size is not None else int(e.get("DB_POOL_MIN_SIZE", "1")),
+        "max_size": max_size if max_size is not None else int(e.get("DB_POOL_MAX_SIZE", "5")),
+        "timeout": timeout if timeout is not None else int(e.get("DB_POOL_TIMEOUT", "10")),
+    }
     if e.get("DATABASE_URL"):
         config: dict[str, Any] = dict(dj_database_url.parse(e["DATABASE_URL"]))
         config["OPTIONS"] = {
@@ -139,6 +148,75 @@ def simple_jwt_defaults() -> dict[str, Any]:
         "AUTH_HEADER_TYPES": ("Bearer",),
         "USER_ID_FIELD": "id",
         "USER_ID_CLAIM": "user_id",
+    }
+
+
+def structlog_logging(*, json_output: bool, level: str = "INFO") -> dict[str, Any]:
+    """Configure structlog and return the Django ``LOGGING`` dict — one call in
+    settings.py gives the whole process structured, context-carrying logs.
+
+    Requires the ``logging`` extra (django-structlog; pairs with
+    ``django_structlog.middlewares.RequestMiddleware`` in ``MIDDLEWARE`` and, for
+    Celery, ``DJANGO_STRUCTLOG_CELERY_ENABLED = True`` + the
+    ``DjangoStructLogInitStep`` worker step + ``CELERY_WORKER_HIJACK_ROOT_LOGGER =
+    False``).
+
+    Every line carries the contextvars django-structlog binds per request
+    (``request_id``, ``user_id``, anything the app adds). ``json_output=True`` renders
+    JSON for platform log search (production); ``False`` renders pretty console lines
+    for humans (dev). stdlib loggers (``django.*``, ``celery.*``) are routed through
+    the same formatter via ``foreign_pre_chain``, so the two worlds don't diverge.
+
+    ```python
+    LOGGING = structlog_logging(json_output=is_production())
+    ```
+    """
+    import structlog
+
+    renderer: Any = (
+        structlog.processors.JSONRenderer() if json_output else structlog.dev.ConsoleRenderer()
+    )
+    structlog.configure(
+        processors=[
+            structlog.contextvars.merge_contextvars,
+            structlog.stdlib.filter_by_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.stdlib.add_logger_name,
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.PositionalArgumentsFormatter(),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            structlog.processors.UnicodeDecoder(),
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
+    )
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "structlog": {
+                "()": structlog.stdlib.ProcessorFormatter,
+                "processor": renderer,
+                "foreign_pre_chain": [
+                    structlog.contextvars.merge_contextvars,
+                    structlog.processors.TimeStamper(fmt="iso"),
+                    structlog.stdlib.add_logger_name,
+                    structlog.stdlib.add_log_level,
+                    structlog.stdlib.ExtraAdder(),
+                ],
+            },
+        },
+        "handlers": {
+            "console": {"class": "logging.StreamHandler", "formatter": "structlog"},
+        },
+        "root": {"handlers": ["console"], "level": level},
+        "loggers": {
+            # Explicit handler + no propagation, or Django's default config double-logs
+            # django.* through both its own console handler and root.
+            "django": {"handlers": ["console"], "level": level, "propagate": False},
+        },
     }
 
 

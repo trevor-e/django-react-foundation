@@ -1,6 +1,6 @@
 [project]
 name = "django-drf-foundation"
-version = "0.7.0"
+version = "0.8.0"
 description = "Pydantic-inside-DRF wire schemas, deny-by-default permissions, and generated-TS-types plumbing for Django + DRF APIs."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -15,6 +15,7 @@ dependencies = [
 auth = ["djangorestframework-simplejwt>=5.5"]
 celery = ["celery>=5.3", "redis>=5.0"]
 realtime = ["redis>=5.0"]
+logging = ["django-structlog>=10.0"]
 
 [project.entry-points.pytest11]
 drf_foundation = "drf_foundation.pytest_plugin"
@@ -34,6 +35,7 @@ dev = [
     "celery>=5.3",
     "djangorestframework-simplejwt>=5.5",
     "redis>=5.0",
+    "django-structlog>=10.0",
 ]
 
 [tool.ruff]

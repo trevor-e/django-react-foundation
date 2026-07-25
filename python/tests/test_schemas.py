@@ -85,3 +85,45 @@ def test_api_exception_handler_delegates_other_exceptions():
     response = api_exception_handler(NotFound(), {"request": None, "view": None})
     assert response is not None
     assert response.status_code == 404
+
+
+# --- NUL-byte rejection (Postgres text cannot store 0x00; reject at the choke point) ---
+
+
+class Nested(Schema):
+    name: str = ""
+    tags: list[str] = []
+    child: Item | None = None
+
+
+def test_parse_rejects_nul_in_top_level_string():
+    request = _drf_request("/x", {"name": "bad \x00name"}, format="json")
+    try:
+        parse(request, Item)
+        raise AssertionError("expected RequestValidationError")
+    except RequestValidationError as exc:
+        assert "NUL" in exc.detail
+        assert "name" in exc.detail
+
+
+def test_parse_rejects_nul_in_nested_list():
+    request = _drf_request("/x", {"tags": ["fine", "bad \x00"]}, format="json")
+    try:
+        parse(request, Nested)
+        raise AssertionError("expected RequestValidationError")
+    except RequestValidationError as exc:
+        assert "tags[1]" in exc.detail
+
+
+def test_parse_rejects_nul_in_nested_object():
+    request = _drf_request("/x", {"child": {"name": "x\x00y"}}, format="json")
+    try:
+        parse(request, Nested)
+        raise AssertionError("expected RequestValidationError")
+    except RequestValidationError as exc:
+        assert "child.name" in exc.detail
+
+
+def test_parse_allows_clean_unicode():
+    request = _drf_request("/x", {"name": "h\u00e9llo \u00fcn\u00efcode"}, format="json")
+    assert parse(request, Nested).name == "h\u00e9llo \u00fcn\u00efcode"
