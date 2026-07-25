@@ -76,9 +76,9 @@ below for the frontend package's.
 ## Frontend package (`react-vite-foundation`, this repo's root)
 
 An auth-aware API client, a local/prod backend URL switch, a TanStack Query key factory,
-a CLI for generating TypeScript types from the backend's JSON Schema, and opt-in SEO
-subpaths: runtime head-tag management (`/seo`) and a browserless build-time prerenderer
-(`/prerender`).
+a CLI for generating TypeScript types from the backend's JSON Schema, and opt-in
+subpaths: runtime head-tag management (`/seo`), a browserless build-time prerenderer
+(`/prerender`), and Radix-based auth-page UI (`/auth-ui`).
 
 This package ships plain TypeScript source (no build step) — Vite/esbuild compiles it
 together with the rest of your app. If you ever hit a bundler edge case with a
@@ -196,6 +196,27 @@ trailing-slash 308. Keep the SSR entry's import graph tiny (marketing pages only
 — rendering your whole app in Node drags every dependency into the SSG pass. No
 browser is required at build time, so this runs on any CI or Pages build image.
 
+### 6. Auth-page UI (`/auth-ui`)
+
+Opt-in, brand-free auth UI on Radix Themes — the only UI subpath (see the "does NOT
+cover" note below for why it's the exception). Requires the optional peers
+`@radix-ui/themes` and `@radix-ui/react-icons`; consumers that never import the
+subpath don't need them.
+
+```tsx
+import { AuthLayout, PasswordField } from 'react-vite-foundation/auth-ui'
+
+// Bind your brand once in a thin app-side wrapper:
+<AuthLayout wordmark={<Link to="/">myapp.com</Link>} tagline="Your tagline.">
+  {/* your login/register card content */}
+</AuthLayout>
+
+// Password input with show/hide toggle + hint/error line, accessible-name-safe:
+<PasswordField label="Password" name="new-password" autoComplete="new-password"
+  required minLength={8} hint="At least 8 characters."
+  value={password} onChange={setPassword} error={fieldError} />
+```
+
 ### Testing
 
 ```bash
@@ -213,4 +234,6 @@ pnpm run typecheck
   wrapper per project.
 - **UI components, Tailwind/Radix setup, TanStack Query provider wiring** — those are
   copy-paste-and-adapt territory (see the blueprint doc), not something worth forcing
-  into a shared package.
+  into a shared package. One deliberate exception: `/auth-ui`, because auth pages are
+  the same shell in every project and the components there are brand-free by
+  construction (the consumer passes its wordmark/tagline).
