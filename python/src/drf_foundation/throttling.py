@@ -31,6 +31,19 @@ class RegisterRateThrottle(AnonRateThrottle):
     scope = "auth-register"
 
 
+class CsrfBootstrapRateThrottle(AnonRateThrottle):
+    """Per-IP rate limit on the CSRF bootstrap endpoint
+    (``drf_foundation.session_auth.csrf_token``).
+
+    Under ``CSRF_USE_SESSIONS`` the token's secret lives in the session, so serving one
+    to a previously-sessionless caller writes a session row — cheap, but unbounded
+    without this. Rate it generously (a legitimate client fetches one per page load, and
+    again after each session rotation) and reap expired rows with ``clearsessions``.
+    """
+
+    scope = "auth-csrf"
+
+
 class TokenUserRateThrottle(UserRateThrottle):
     """Per-user rate limit applied only to token-authenticated requests.
 

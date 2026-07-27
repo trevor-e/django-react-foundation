@@ -5,8 +5,13 @@ import { readEventStream } from './sse'
 export interface RealtimeSyncOptions {
   /** Absolute URL of the SSE endpoint. */
   streamUrl: string
-  /** Bearer token for the stream fetch, read fresh per connection attempt. */
-  getToken: () => string | null
+  /** JWT mode: bearer token for the stream fetch, read fresh per connection attempt.
+   * Omit under session-cookie auth and set `credentials: 'include'` instead — the
+   * browser attaches the cookie itself and there is no token to read. */
+  getToken?: () => string | null
+  /** Session mode: `'include'` so the session cookie rides the (cross-origin) stream
+   * fetch. Defaults to the fetch default, which sends no cookies cross-origin. */
+  credentials?: RequestCredentials
   /**
    * Fetch the current change cursor (latest event id, or null when none). Called
    * through the app's refresh-aware API client so it doubles as the token-refresh
@@ -73,18 +78,24 @@ export function createRealtimeSync(options: RealtimeSyncOptions): RealtimeSync {
     try {
       await checkHead()
       controller = new AbortController()
-      await readEventStream(options.streamUrl, options.getToken(), controller.signal, {
-        onOpen: () => {
-          attempt = 0
+      await readEventStream(
+        options.streamUrl,
+        options.getToken?.() ?? null,
+        controller.signal,
+        {
+          onOpen: () => {
+            attempt = 0
+          },
+          onFrame: (frame) => {
+            // Data frames carry a change id; named events (`connected`) don't.
+            if (frame.event === undefined && frame.data) {
+              lastHead = frame.data
+              options.onChange()
+            }
+          },
         },
-        onFrame: (frame) => {
-          // Data frames carry a change id; named events (`connected`) don't.
-          if (frame.event === undefined && frame.data) {
-            lastHead = frame.data
-            options.onChange()
-          }
-        },
-      })
+        { credentials: options.credentials },
+      )
     } catch {
       // Aborted (stop/hidden), auth failure, or network drop — the retry
       // scheduler decides; fetchHead's client already handled token refresh.

@@ -4,15 +4,21 @@
 // hitting '/' paints the static marketing HTML before the JS bundle runs, then
 // the app's client-side auth check redirects — a sub-second landing-page flash.
 // The gate is a blocking inline <script> in landing.html's <head> that checks
-// localStorage for the access-token key and, when present, sets an attribute on
+// localStorage for a signed-in marker and, when present, sets an attribute on
 // <html> that a companion <style> uses to hide #root pre-paint. The app lifts
 // the gate with `liftAuthGate()` once React has replaced the prerendered DOM.
 //
-// Security: the script only checks key *presence* — it never reads the token
-// value into the DOM or sends it anywhere, and the server still authenticates
-// every API call. Worst case for a spoofed key is a blank frame, then a bounce
-// to login. Sites with a CSP that bans inline script allowlist exactly this
-// script by hash — prerender.ts computes it from the injected bytes.
+// Which key to point it at follows the auth mode: the access-token key under JWT
+// auth (the default), or the session hint (`createSessionHint`,
+// DEFAULT_SESSION_HINT_KEY) under session-cookie auth, where an HttpOnly cookie
+// leaves JavaScript nothing else to read. Either way only presence is tested.
+//
+// Security: the script only checks key *presence* — it never reads the value
+// into the DOM or sends it anywhere, and the server still authenticates every
+// API call. Worst case for a spoofed key is a blank frame, then a bounce to
+// login. Sites with a CSP that bans inline script allowlist exactly this script
+// by hash — prerender.ts computes it from the injected bytes, so changing the
+// key changes the hash in the same build.
 //
 // Browser-safe module (no node imports): the root export re-exports
 // `liftAuthGate`; the build-time injection lives in prerender.ts (Node-only).

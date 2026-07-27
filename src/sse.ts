@@ -5,6 +5,11 @@
  * aborts, or the network drops — reconnect/backoff policy belongs to the caller,
  * which typically wraps this in a loop that re-fetches a catch-up cursor before each
  * (re)connect and pauses while `document.hidden`.
+ *
+ * Under session-cookie auth there is no header to send, but the fetch still needs
+ * `credentials: 'include'` to attach the cookie cross-origin — pass `credentials` and
+ * leave `token` null. Staying on fetch rather than switching to `EventSource` keeps the
+ * caller's abort-based pausing working identically in both modes.
  */
 
 export interface SseFrame {
@@ -24,11 +29,12 @@ export async function readEventStream(
   token: string | null,
   signal: AbortSignal,
   handlers: SseHandlers,
+  options: { credentials?: RequestCredentials } = {},
 ): Promise<void> {
   const headers: Record<string, string> = { Accept: 'text/event-stream' }
   if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const response = await fetch(url, { headers, signal })
+  const response = await fetch(url, { headers, signal, credentials: options.credentials })
   if (!response.ok || !response.body) {
     throw new Error(`event stream failed: ${response.status}`)
   }
