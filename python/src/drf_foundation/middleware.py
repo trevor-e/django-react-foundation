@@ -44,3 +44,42 @@ class ChunkedContentLengthMiddleware:
                 if length:
                     request.META["CONTENT_LENGTH"] = str(length)
         return self.get_response(request)
+
+
+class ApiVersionAliasMiddleware:
+    """Serve a versioned URL prefix as an alias of the unversioned one.
+
+    Announcing ``/api/v1`` as the public surface without maintaining a second set of
+    urlpatterns: ``/api/v1/<rest>`` resolves as ``/api/<rest>``, so both spellings hit
+    the same routes, the same route *names*, the same middleware, the same throttle
+    scopes, and the same test coverage. Nothing can drift between them because there
+    is only one of them.
+
+    A pre-resolution rewrite is what buys that. Mounting a second ``include()`` under
+    the versioned prefix would duplicate every route name and silently double the
+    surface any route-walking test (tenancy leak tests, OpenAPI generation) has to
+    reason about.
+
+    Only ``path_info`` — the value URL resolution reads — is rewritten. ``request.path``
+    is deliberately left alone so logs, error pages, and Sentry events show what the
+    client actually sent.
+
+    Configure with ``DRF_FOUNDATION_VERSION_ALIAS`` as a ``(prefix, target)`` pair;
+    it defaults to ``("/api/v1/", "/api/")``. Install anywhere in ``MIDDLEWARE`` before
+    the view is resolved (i.e. anywhere in the normal list).
+    """
+
+    DEFAULT_ALIAS = ("/api/v1/", "/api/")
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+        from django.conf import settings
+
+        self.prefix, self.target = getattr(
+            settings, "DRF_FOUNDATION_VERSION_ALIAS", self.DEFAULT_ALIAS
+        )
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if request.path_info.startswith(self.prefix):
+            request.path_info = self.target + request.path_info[len(self.prefix) :]
+        return self.get_response(request)
