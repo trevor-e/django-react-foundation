@@ -106,3 +106,35 @@ def test_structlog_logging_returns_logging_dict():
     config = structlog_logging(json_output=True)
     assert config["handlers"]["console"]["formatter"] == "structlog"
     assert config["loggers"]["django"]["propagate"] is False
+
+
+def test_admin_csp_blocks_inline_scripts_but_allows_inline_styles():
+    """The admin uses inline style attributes heavily; locking those down buys little
+    while inline *scripts* stay blocked, which is the concession that matters."""
+    from django.utils.csp import CSP
+
+    from drf_foundation.settings_helpers import admin_csp
+
+    policy = admin_csp()
+    assert CSP.UNSAFE_INLINE not in policy["script-src"]
+    assert CSP.UNSAFE_INLINE in policy["style-src"]
+
+
+def test_admin_csp_lists_the_nonce_sentinel():
+    """Stripped from the header unless a template actually reads csp_nonce, so it
+    costs nothing until a Django-rendered inline script needs it."""
+    from django.utils.csp import CSP
+
+    from drf_foundation.settings_helpers import admin_csp
+
+    assert CSP.NONCE in admin_csp()["script-src"]
+
+
+def test_admin_csp_denies_framing_and_plugins():
+    from django.utils.csp import CSP
+
+    from drf_foundation.settings_helpers import admin_csp
+
+    policy = admin_csp()
+    assert policy["frame-ancestors"] == [CSP.NONE]
+    assert policy["object-src"] == [CSP.NONE]

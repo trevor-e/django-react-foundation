@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-django-drf-foundation = { git = "https://github.com/trevor-e/django-react-foundation.git", subdirectory = "python", rev = "v0.6.0" }
+django-drf-foundation = { git = "https://github.com/trevor-e/django-react-foundation.git", subdirectory = "python", rev = "py-v0.8.0" }
 
 [dependency-groups]
 dev = [

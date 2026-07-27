@@ -135,6 +135,44 @@ def production_security_settings(
     }
 
 
+def admin_csp() -> dict[str, Any]:
+    """``SECURE_CSP`` for the HTML a Django API origin actually serves.
+
+    Worth naming the surface precisely, because it's smaller than it first looks: an
+    API origin's docs route is usually a redirect and its schema route is JSON, so the
+    only HTML Django renders here is **the admin plus Django's error pages**. This
+    policy is tuned for that, not copied from a frontend's — and it complements rather
+    than replaces a frontend CSP, which only covers the frontend's own origin.
+
+    Deliberately **not** gated on production: unlike HSTS or SSL redirect, a CSP is
+    meaningful in dev, and gating it means the first violation anyone sees is in prod.
+
+    ``style-src`` allows inline attributes because the admin uses them heavily and
+    locking them down buys little while inline *scripts* stay blocked. ``CSP.NONCE`` is
+    a sentinel the middleware substitutes **only** if a template actually read
+    ``csp_nonce``, and is stripped otherwise — so admin responses come back as a plain
+    ``script-src 'self'`` while a future inline script in a Django-rendered template
+    works without a settings change. Register
+    ``django.template.context_processors.csp`` or the nonce entry is dead config.
+
+    Requires ``django.middleware.csp.ContentSecurityPolicyMiddleware`` in MIDDLEWARE.
+    """
+    from django.utils.csp import CSP
+
+    return {
+        "default-src": [CSP.SELF],
+        "script-src": [CSP.SELF, CSP.NONCE],
+        "style-src": [CSP.SELF, CSP.UNSAFE_INLINE],
+        "img-src": [CSP.SELF, "data:"],
+        "font-src": [CSP.SELF],
+        "connect-src": [CSP.SELF],
+        "frame-ancestors": [CSP.NONE],
+        "object-src": [CSP.NONE],
+        "base-uri": [CSP.SELF],
+        "form-action": [CSP.SELF],
+    }
+
+
 def simple_jwt_defaults() -> dict[str, Any]:
     """SIMPLE_JWT matching the apiClient contract: rotating refresh tokens with
     blacklist (requires `rest_framework_simplejwt.token_blacklist` installed)."""

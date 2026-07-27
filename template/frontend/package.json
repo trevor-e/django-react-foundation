@@ -8,16 +8,19 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "lint": "oxlint",
-    "gen:types": "gen-types src/types/api-schema.json src/types/api.ts"
+    "gen:types": "gen-types src/types/api-schema.json src/types/api.ts",
+    "snapshots": "playwright test -c playwright-ct.config.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.0",
-    "react-vite-foundation": "github:trevor-e/django-react-foundation#v0.6.0"
+    "react-vite-foundation": "github:trevor-e/django-react-foundation#js-v0.12.0"
   },
   "devDependencies": {
+    "@playwright/experimental-ct-react": "^1.61.0",
+    "@playwright/test": "^1.61.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^5.0.0",
