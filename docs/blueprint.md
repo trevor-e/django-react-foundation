@@ -294,6 +294,60 @@ balloon your diff.
   return builder functions. Add **golden tests before migrating** a thinly-covered endpoint.
 - Mock only true externals (paid APIs, third-party HTTP) — e.g. a fake service object
   injected via `monkeypatch.setattr`.
+- **Serialize the suite machine-wide.** Every checkout and worktree shares one test
+  Postgres (fixed container name, fixed port), so two concurrent runs clobber each
+  other's database — and the automatic teardown kills the container out from under the
+  other run. `template/scripts/with-test-lock.sh` makes a second run wait its turn.
+  You hit this exactly when you least expect it: two agents, or an agent and a human,
+  testing the same repo at once.
+
+### 8a. Query budgets: assert queries don't scale with rows
+
+A suite with no query-count assertions has nothing stopping an N+1 from shipping. The
+obvious tool, `assertNumQueries(N)`, is a bad fit: the constant is a moving target, so
+it churns on every unrelated change and gets bumped reflexively until it means nothing.
+
+Assert the *property* you actually care about instead — **fetch each list endpoint at
+two different row counts and require the counts to be equal**:
+
+```python
+small = count_queries(lambda: client.get(url), rows=2)
+large = count_queries(lambda: client.get(url), rows=8)
+assert small == large     # queries must not scale with rows
+assert large <= CEILING   # and the flat baseline must not creep either
+```
+
+That doesn't churn when the baseline legitimately moves, and it fails on the one thing
+that matters. Keep the ceiling as a second assertion so a flat-but-growing baseline is
+still caught.
+
+**Verify the guard isn't vacuous.** A query-count test that can never fail is worse
+than none, because it reads as coverage. Inject an N+1 into one endpoint and confirm
+the test catches it, and assert the fixtures actually populate the FKs being traversed
+— a fixture with null relations makes `select_related` free and the assertion
+meaningless.
+
+### 8b. Seam modules: one choke point per external SDK, mechanically enforced
+
+Every external SDK (email provider, payments, object storage, an LLM API) gets exactly
+one module that may import it, and the import is *banned everywhere else* — not by
+convention, by tooling. ruff's `flake8-tidy-imports` banned-api rule is the enforcement,
+and the message is where you teach the next person the rule:
+
+```toml
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"resend".msg = "Send through notifications.service.send() — see email_provider.py."
+"stripe".msg = "Use billing.gateway; nothing else may touch the Stripe SDK."
+"django.core.mail".msg = "Use the notifications choke point, not Django mail directly."
+```
+
+Two payoffs. Tests only ever stub one seam per external, which is what makes "mock only
+true externals" (§8) practical rather than aspirational. And swapping a provider is a
+one-file change with a compiler-checked blast radius.
+
+Use `import-linter` for the *internal* shape — "the events app imports no domain apps",
+"billing touches only accounts + events". It squashes external packages to their top
+level, so it can't express `django.core.mail`; that's why the two tools split the job.
 
 ---
 
@@ -406,6 +460,44 @@ shape passes — `curl -H 'Host: healthcheck.railway.app' http://localhost:8000/
 
 ---
 
+## 12a. Transactional email
+
+`drf_foundation.emails` ships the shell (`EmailTheme` + a table-layout `layout.html`)
+and four generic kinds: verification, password reset, password-changed alert, and
+invite. Project-specific kinds extend the same layout. Three rules the templates encode:
+
+1. **Inline styles, table layout, literal hex.** No CSS custom properties, no `<style>`
+   block, no external stylesheet — none of them are reliable across clients. One
+   palette is interpolated into `style=""`. Keep the font stack *unquoted*: CSS allows
+   a multi-identifier family (`Segoe UI`) without quotes, and staying quote-free keeps
+   every style string untouched by autoescaping.
+2. **Never disable autoescaping.** Display names and group names are user-controlled
+   and land in HTML. No `|safe`, no `mark_safe`, no `format_html`. Hold that line with
+   a test that drives a `<script>` payload and a quote-breakout through a renderer.
+3. **No remote assets.** A logo needs a remote fetch, which is a read receipt whether
+   or not you meant it as one. The brand is a text wordmark.
+
+**Preview the rendered output as a committed artifact.** `render_email_previews`
+writes one HTML file per kind, using frozen fixtures with `FRONTEND_BASE_URL` pinned —
+no database, no `date.today()`, no generated ids. Anything varying makes the drift
+guard flaky, and a flaky guard is worse than none. `--check` in CI (alongside
+`export_api_schema --check`, §3d) fails when a template edit skipped regeneration.
+
+Those committed files are then screenshot-able by a component-test suite (§13a), which
+is what turns "did I break the email layout?" into a visible diff. Snapshots still
+only prove your markup renders consistently in headless Chromium — they say nothing
+about Outlook stripping `border-radius`. Add a staff-only endpoint that renders the
+same frozen fixtures and sends one to the operator's own address; two properties keep
+that from becoming a liability: **it takes no recipient** (read the address off
+`request.user`, so a leaked staff token can only mail its own owner) and **the kind
+never reaches a template path** (it's a key into the preview registry; unknown → 404).
+
+Send through one choke point, always: budget/suppression logic, the audit row, and
+idempotency all belong in one place. `drf_foundation.email_provider` is the seam under
+it (§8b) — keep messages multipart with text primary, never HTML-only.
+
+---
+
 ## 13. Frontend (React) patterns
 
 Also installable — `react-vite-foundation` (this repo's root, see the README):
@@ -429,6 +521,42 @@ Also installable — `react-vite-foundation` (this repo's root, see the README):
 - **Vite** with an `@ → src` path alias; UI from a component lib (Radix) + Tailwind; reach
   for zod **only at the trust boundary** if you want runtime validation layered on the
   generated static types.
+
+### 13a. Visual snapshots via Playwright component testing
+
+Render each component to a PNG with Playwright CT (`*.snapshots.tsx`) and let an image
+differ (Sentry Snapshots, or any equivalent) do the comparison in CI. This is a
+*visual regression* setup, not an assertion framework — the value is seeing what
+changed, so don't reach for it to test logic.
+
+Three pieces make it reusable rather than per-component boilerplate:
+
+- **A provider wrapper** in `playwright/index.tsx` (`beforeMount`) that mounts every
+  component in the app's real stack — a fresh `QueryClient` with retries off, the theme
+  provider, a `MemoryRouter`. Per-test routing arrives via `hooksConfig`, so a component
+  that reads route params can be mounted under its real path pattern.
+- **A route table** for the API: keys like `'/path'` or `'METHOD /path'`, substring
+  matched **longest key first** so `/tasks/task_01…` wins over `/tasks`. Fulfil
+  unmatched `/api/` calls with a 404 rather than letting them hang — a missing fixture
+  should surface as an empty state, not a timeout.
+- **A shrink-wrapped `#snapshot-root`** with padding, so box-shadows and focus rings
+  aren't clipped, and screenshot *that* rather than the page.
+
+Two things worth stealing outright:
+
+- **An overflow assertion.** A PNG cannot catch "the page scrolls sideways on a phone":
+  an element screenshot clips to the frame, so runaway content is cropped out and the
+  image looks *fine*. Compare `scrollWidth` to `clientWidth` on the frame, exempting
+  anything inside a deliberate scroller, and name the offending element in the failure
+  message. Allow 1px of slack — those values are integer-rounded.
+- **Screenshot the committed email previews** (§12a) at desktop and phone widths. Those
+  tests should *not* `mount()` — `setContent` the preview HTML into a bare document,
+  since wrapping an email in the app's theme and CSS reset would be less faithful, not
+  more.
+
+Gotcha: Playwright CT only auto-injects `@vitejs/plugin-react` when `ctViteConfig` has
+no plugins of its own. The moment you add one, JSX silently stops compiling — set
+`esbuild.jsx: 'automatic'` explicitly and leave a note saying why.
 
 ## 14. Local vs prod: one switch, both targets
 

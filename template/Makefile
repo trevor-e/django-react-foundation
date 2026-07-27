@@ -1,6 +1,6 @@
 .PHONY: install dev dev-up dev-down dev-status dev-logs dev-backend dev-frontend \
-	test test-backend test-frontend lint typecheck \
-	migrate makemigrations gen-api-types check-api-schema \
+	test test-backend test-backend-locked test-frontend lint typecheck \
+	migrate makemigrations gen-api-types check-api-schema gen-emails \
 	shell manage test-db-up test-db-down dev-db-up
 
 BACKEND := cd backend && uv run
@@ -45,7 +45,13 @@ test-db-up:
 test-db-down:
 	cd backend && docker compose -f docker-compose.test.yml down
 
-test-backend: test-db-up
+# Serialized machine-wide: every checkout/worktree shares one test DB (fixed container
+# name + port), so concurrent runs clobber each other and the teardown below kills the
+# container out from under the other run. A second run waits its turn instead.
+test-backend:
+	./scripts/with-test-lock.sh $(MAKE) test-backend-locked
+
+test-backend-locked: test-db-up
 	$(BACKEND) pytest
 	$(MAKE) test-db-down
 
@@ -73,6 +79,11 @@ gen-api-types:
 
 check-api-schema:
 	$(BACKEND) python manage.py export_api_schema --check
+
+# Regenerate the committed email previews after editing a template or its copy.
+# `--check` (wired into CI alongside check-api-schema) fails when they're stale.
+gen-emails:
+	$(BACKEND) python manage.py render_email_previews
 
 shell:
 	$(BACKEND) python manage.py shell

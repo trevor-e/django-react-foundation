@@ -139,6 +139,46 @@ Pipe the output through `json-schema-to-typescript` (or any JSON-Schema-to-TS to
 frontend side to generate typed API response/request models. Auto-discovery means any new
 `<app>/schemas.py` — in any installed app — flows into the export with no registration step.
 
+Transactional email — a themed shell, four generic kinds, and a previews drift guard:
+
+```python
+# settings.py
+from drf_foundation.emails import EmailTheme
+EMAIL_THEME = EmailTheme(wordmark="myapp", wordmark_suffix=".com").with_palette(accent="#3E63DD")
+
+# anywhere
+from drf_foundation.emails import render_password_reset
+email = render_password_reset(reset_url, expiry_days=3)   # .subject / .text / .html
+```
+
+```bash
+python manage.py render_email_previews           # writes one HTML file per kind
+python manage.py render_email_previews --check   # CI drift guard, same idiom as above
+```
+
+Bundled kinds: `verification`, `password_reset`, `password_changed`, `invite`. Project
+kinds extend `drf_foundation/email/layout.html` and register a fixture via
+`settings.EMAIL_PREVIEWS`. Table layout with inline styles, autoescaping never
+disabled, no remote assets (nothing here can become a tracking pixel).
+`drf_foundation.email_provider` is the delivery seam — Django backend or Resend, always
+multipart with text primary.
+
+Scheduled jobs — one declaration feeding both Celery beat and a Sentry cron monitor:
+
+```python
+registry = CronRegistry({"nightly": CronJob(task="app.tasks.roll", minute="0", hour="7")})
+CELERY_BEAT_SCHEDULE = registry.beat_schedule()
+
+@shared_task
+@registry.monitor("nightly")          # note the order: below @shared_task
+def roll(): ...
+```
+
+Use this rather than `CeleryIntegration(monitor_beat_tasks=True)`, which splits a
+check-in across the beat and worker processes (so short tasks report as minutes long)
+and emits no thresholds (so monitors inherit Sentry's hair-trigger defaults). See the
+module docstring.
+
 ## Testing
 
 ```bash
@@ -149,7 +189,10 @@ uv run pytest
 ## Optional extras
 
 - `django-drf-foundation[celery]` — pulls in `celery` + `redis` for
-  `drf_foundation.celery_health`. Skip it if you have no background job queue.
+  `drf_foundation.celery_health` and `drf_foundation.crons`. Skip it if you have no
+  background job queue.
+- `django-drf-foundation[sentry]` — `sentry-sdk`, for `CronRegistry.monitor`. The
+  import is lazy, so schedules render and test fine without it.
 
 ## What this package deliberately does NOT cover
 

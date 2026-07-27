@@ -34,6 +34,9 @@ jobs:
       # Schema drift guard (blueprint §3d): the committed api-schema.json must match
       # the Python wire schemas.
       - run: uv run python manage.py export_api_schema --check
+      # Same drift guard for the committed email previews: a template or copy edit
+      # that skipped `make gen-emails` fails here instead of silently desyncing.
+      - run: uv run python manage.py render_email_previews --check
 
   frontend:
     runs-on: ubuntu-latest
