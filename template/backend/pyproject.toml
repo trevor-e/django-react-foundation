@@ -57,3 +57,7 @@ replace-imports-with-any = ["celery.*"]
 DJANGO_SETTINGS_MODULE = "config.test_settings"
 python_files = ["test_*.py"]
 pythonpath = ["."]
+# Fuzzing is opt-in: hypothesis-driven tests are far too slow for the normal
+# edit-test loop. `make fuzz` (or `pytest -m fuzz`) runs them.
+addopts = "-m 'not fuzz'"
+markers = ["fuzz: property-based API fuzzing (slow; run via `make fuzz`)"]

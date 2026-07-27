@@ -1,6 +1,6 @@
 .PHONY: install dev dev-up dev-down dev-status dev-logs dev-backend dev-frontend \
 	test test-backend test-backend-locked test-frontend lint typecheck \
-	migrate makemigrations gen-api-types check-api-schema gen-emails \
+	migrate makemigrations gen-api-types check-api-schema gen-emails fuzz fuzz-locked \
 	shell manage test-db-up test-db-down dev-db-up
 
 BACKEND := cd backend && uv run
@@ -84,6 +84,15 @@ check-api-schema:
 # `--check` (wired into CI alongside check-api-schema) fails when they're stale.
 gen-emails:
 	$(BACKEND) python manage.py render_email_previews
+
+# Opt-in API fuzzing (deselected from the default loop by pyproject addopts).
+# Deeper hunt: FUZZ_MAX_EXAMPLES=100 make fuzz
+fuzz:
+	./scripts/with-test-lock.sh $(MAKE) fuzz-locked
+
+fuzz-locked: test-db-up
+	$(BACKEND) pytest -m fuzz
+	$(MAKE) test-db-down
 
 shell:
 	$(BACKEND) python manage.py shell
