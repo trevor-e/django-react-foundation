@@ -26,6 +26,20 @@ INSTALLED_APPS = [
 
 ROOT_URLCONF = "tests.urls"
 
+# APP_DIRS so the email templates shipped inside drf_foundation/templates/ resolve.
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {"context_processors": []},
+    }
+]
+
+DEFAULT_FROM_EMAIL = "noreply@example.com"
+EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+FRONTEND_BASE_URL = "https://app.example.com"
+
 # Rotating refresh + blacklist — what drf_foundation.auth's contract assumes.
 from drf_foundation.settings_helpers import simple_jwt_defaults  # noqa: E402
 

@@ -1,0 +1,17 @@
+{% comment %}
+The call to action. The background lives on the <td>, not the <a>, because a styled
+anchor loses its background in several Outlook builds while a table cell doesn't.
+
+Include with:
+  {% include "drf_foundation/email/_button.html" with button_url=... button_label=... %}
+(no `only` — the shared `s` styles have to stay in scope).
+
+The margin is a small cushion on both sides, not the full gap: whatever follows the
+button supplies the rest (`s.p_after_cta`, `s.small`). A generous bottom margin here
+would look right mid-body but stack on top of the card's 32px padding whenever the
+button is the last element, which is the common case.
+{% endcomment %}<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0;">
+  <tr>
+    <td align="center" bgcolor="{{ palette.accent }}" style="{{ s.button_cell }}"><a href="{{ button_url }}" style="{{ s.button_link }}">{{ button_label }}</a></td>
+  </tr>
+</table>

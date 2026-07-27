@@ -1,0 +1,7 @@
+{% extends "drf_foundation/email/layout.html" %}
+
+{% block content %}<h1 style="{{ s.h1 }}">Welcome to {{ brand }}</h1>
+      <p style="{{ s.p }}">Confirm this is your email address to finish setting up your account.</p>
+      {% include "drf_foundation/email/_button.html" with button_url=verify_url button_label="Verify email address" %}
+      <p style="{{ s.p_after_cta }}">If you didn't create this account, you can ignore this email.</p>
+      <p style="{{ s.small }}">If the button doesn't work, paste this into your browser:<br /><a href="{{ verify_url }}" style="{{ s.link }}">{{ verify_url }}</a></p>{% endblock %}

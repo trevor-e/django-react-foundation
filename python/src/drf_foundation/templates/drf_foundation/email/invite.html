@@ -1,0 +1,6 @@
+{% extends "drf_foundation/email/layout.html" %}
+
+{% block content %}<h1 style="{{ s.h1 }}">You're invited to {{ group_name }}</h1>
+      <p style="{{ s.p }}">{{ inviter_name }} invited you to join <strong>{{ group_name }}</strong> on {{ brand }}{% if blurb %} — {{ blurb }}{% endif %}.</p>
+      {% include "drf_foundation/email/_button.html" with button_url=invite_url button_label="Accept your invite" %}
+      <p style="{{ s.small }}">If the button doesn't work, paste this into your browser:<br /><a href="{{ invite_url }}" style="{{ s.link }}">{{ invite_url }}</a></p>{% endblock %}

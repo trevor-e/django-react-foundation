@@ -1,0 +1,38 @@
+{% comment %}
+The one shell every email extends: page background, centered 600px column, text
+wordmark, card, footer. Table layout with inline styles only — no <style> block, no
+external stylesheet, no web font, no remote image (nothing here may become a tracking
+pixel).
+
+The frame is `width="100%"` with `max-width:600px` rather than a fixed `width="600"`
+so it degrades to a phone's width instead of forcing a horizontal scroll.
+
+Project templates extend this and fill `{% block content %}`.
+{% endcomment %}<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>{{ subject }}</title>
+  </head>
+  <body style="{{ s.body }}">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="{{ s.page }}">
+      <tr>
+        <td align="center" style="padding:24px 12px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="{{ s.frame }}">
+            <tr>
+              <td style="padding:0 4px 14px 4px;">
+                <a href="{{ app_url }}" style="{{ s.wordmark }}">{{ theme.wordmark }}<span style="{{ s.wordmark_accent }}">{{ theme.wordmark_suffix }}</span></a>
+              </td>
+            </tr>
+            <tr>
+              <td style="{{ s.card }}">{% block content %}{% endblock %}</td>
+            </tr>
+            {% include "drf_foundation/email/_footer.html" %}
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+{% comment %}
+A whole <tr>, so `layout.html` can drop it straight into the frame table. The
+unsubscribe line only appears for kinds that pass one — a password-reset email is not
+opt-outable, so it must not offer a link that implies otherwise.
+{% endcomment %}<tr>
+  <td style="padding:16px 4px 0 4px;">
+    <p style="{{ s.footer }}">{{ footer_reason }}</p>
+    {% if unsubscribe_url %}<p style="{{ s.footer }}"><a href="{{ unsubscribe_url }}" style="{{ s.footer_link }}">{{ unsubscribe_label }}</a></p>{% endif %}
+  </td>
+</tr>
