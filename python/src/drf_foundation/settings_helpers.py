@@ -174,7 +174,7 @@ def admin_csp() -> dict[str, Any]:
 
 
 def session_auth_settings(
-    *, cookie_age_days: int = 14, cross_origin_spa: bool = False
+    *, cookie_age_days: int = 30, cross_origin_spa: bool = False, sliding_expiry: bool = False
 ) -> dict[str, Any]:
     """Session-cookie browser auth (``drf_foundation.session_auth``), safe defaults.
 
@@ -190,8 +190,12 @@ def session_auth_settings(
       never sent cross-site. A frontend on a *different* site therefore cannot
       authenticate at all — that is the trade this module accepts, not a bug to patch
       with ``SameSite=None``.
-    - Sliding expiry (``SESSION_SAVE_EVERY_REQUEST``): an active user is not logged out
-      mid-use, an idle one expires ``cookie_age_days`` after their last request.
+    - Expiry is **absolute** by default: ``cookie_age_days`` from sign-in, regardless of
+      activity. ``sliding_expiry=True`` restores the "never logged out while active"
+      behaviour, at the price of ``SESSION_SAVE_EVERY_REQUEST`` — an ``UPDATE`` on the
+      session row (plus its savepoints) on *every* authenticated request, including pure
+      reads. That is write amplification on a hot row for a benefit most apps buy more
+      cheaply with a longer absolute window, so it is opt-in.
 
     ``cross_origin_spa=True`` adds the CORS credential flag a separate frontend origin
     needs. The project still owns ``CORS_ALLOWED_ORIGINS``/``CSRF_TRUSTED_ORIGINS`` —
@@ -202,7 +206,7 @@ def session_auth_settings(
         "SESSION_COOKIE_HTTPONLY": True,
         "SESSION_COOKIE_SAMESITE": "Lax",
         "SESSION_EXPIRE_AT_BROWSER_CLOSE": False,
-        "SESSION_SAVE_EVERY_REQUEST": True,
+        "SESSION_SAVE_EVERY_REQUEST": sliding_expiry,
         "CSRF_USE_SESSIONS": True,
     }
     if cross_origin_spa:
