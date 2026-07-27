@@ -11,6 +11,20 @@ PASSWORD = "a-strong-password-123"
 
 
 @pytest.fixture(autouse=True)
+def session_auth_settings_applied(settings):
+    """Opt this module into the session-auth settings block.
+
+    Not global in `django_settings.py`: CSRF_USE_SESSIONS raises on any request whose
+    middleware stack has no SessionMiddleware, and other modules here drive views
+    through a trimmed stack.
+    """
+    from drf_foundation.settings_helpers import session_auth_settings
+
+    for key, value in session_auth_settings(cross_origin_spa=True).items():
+        setattr(settings, key, value)
+
+
+@pytest.fixture(autouse=True)
 def clear_throttle_state():
     """Throttle counters live in the (locmem) cache and outlive a test — without this,
     a module's worth of logins trips the per-IP login rate and later tests 429."""

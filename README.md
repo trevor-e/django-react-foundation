@@ -59,13 +59,13 @@ releases only get prefixed tags.)
 **Backend (Python / uv):**
 
 ```bash
-uv add "django-drf-foundation @ git+https://github.com/trevor-e/django-react-foundation.git@py-v0.9.0#subdirectory=python"
+uv add "django-drf-foundation @ git+https://github.com/trevor-e/django-react-foundation.git@py-v0.10.0#subdirectory=python"
 ```
 
 **Frontend (JS / pnpm):**
 
 ```bash
-pnpm add "github:trevor-e/django-react-foundation#js-v0.12.0"
+pnpm add "github:trevor-e/django-react-foundation#js-v0.13.0"
 ```
 
 See [`python/README.md`](python/README.md) for the backend package's setup/usage, and

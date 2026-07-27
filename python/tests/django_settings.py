@@ -50,15 +50,14 @@ EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 FRONTEND_BASE_URL = "https://app.example.com"
 
 # Rotating refresh + blacklist — what drf_foundation.auth's contract assumes.
-from drf_foundation.settings_helpers import (  # noqa: E402
-    session_auth_settings,
-    simple_jwt_defaults,
-)
+from drf_foundation.settings_helpers import simple_jwt_defaults  # noqa: E402
 
 SIMPLE_JWT = simple_jwt_defaults()
 
-# Both auth modules are exercised side by side here; a real project picks one.
-globals().update(session_auth_settings(cross_origin_spa=True))
+# NOT applied globally: `session_auth_settings()` turns on CSRF_USE_SESSIONS, which
+# hard-errors any request whose middleware stack lacks SessionMiddleware — and several
+# modules here drive views through a trimmed stack. The session-auth tests opt in
+# per-module instead (see tests/test_session_auth_module.py).
 
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
