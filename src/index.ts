@@ -15,6 +15,15 @@ export type { ApiClient, ApiClientOptions, RefreshResponse } from './apiClient'
 
 export { createQueryKeyFactory } from './queryKeys'
 
+export {
+  applyTheme,
+  getThemePreference,
+  setThemePreference,
+  useThemePreference,
+  THEME_STORAGE_KEY,
+} from './theme'
+export type { ThemePreference } from './theme'
+
 export { readEventStream } from './sse'
 export type { SseFrame, SseHandlers } from './sse'
 export { createRealtimeSync } from './realtimeSync'

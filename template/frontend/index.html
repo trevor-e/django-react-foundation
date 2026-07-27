@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>__PROJECT__</title>
+    <!-- Unhashed and CSP-safe, and it must run before the module entry: it applies the
+         pre-paint theme class and recovers a refresh that lands mid-deploy. See the
+         file's comments — not a candidate for bundling. -->
+    <script src="/boot-guard.js"></script>
   </head>
   <body>
     <div id="root"></div>

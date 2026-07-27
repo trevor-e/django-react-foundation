@@ -231,6 +231,35 @@ import { AuthLayout, PasswordField } from 'react-vite-foundation/auth-ui'
   value={password} onChange={setPassword} error={fieldError} />
 ```
 
+### 7. Light/dark appearance
+
+A `system | light | dark` preference stored in **localStorage, never a cookie**, so a
+project can hold a no-cookie-banner posture. `system` is the default and is stored as
+an *absent* key, so first run needs no write.
+
+```tsx
+import { useThemePreference } from 'react-vite-foundation'
+
+const [pref, setPref] = useThemePreference()   // re-renders on change
+setPref('dark')                                 // toggles the `dark` class on <html>
+```
+
+While in `system`, OS appearance changes take effect live. Pair it with
+`template/frontend/public/boot-guard.js`, which applies the class **before first
+paint** — otherwise a dark-mode user sees a flash of light theme on every cold load.
+That snippet can't live in the bundle: it has to run before the module entry, and a
+strict CSP rules out an inline `<script>`. Keep its storage key in sync with
+`THEME_STORAGE_KEY`.
+
+The same boot file carries a **refresh-during-a-deploy guard**. If a load lands on an
+`index.html` whose hashed `/assets/` files aren't servable yet (mid-deploy propagation)
+or are already gone (stale cached HTML), the host serves `index.html` as the SPA
+fallback for the missing asset, the MIME check blocks the entry module, and the app
+never boots. Vite's `vite:preloadError` can't help — it only covers lazy chunks loaded
+*after* boot, and here the entry itself never ran. The guard reloads with backoff, at
+most 3 times per rolling minute (sessionStorage) so a genuinely broken deploy can't
+loop.
+
 ### Testing
 
 ```bash

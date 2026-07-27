@@ -1,6 +1,6 @@
 {
   "name": "react-vite-foundation",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Auth-aware API client, local/prod URL switch, query-key factory, and generated-TS-types CLI for a React + Vite + TanStack Query frontend, plus SEO head-tag management and a build-time SSG prerenderer.",
   "type": "module",
   "main": "src/index.ts",
@@ -34,7 +34,8 @@
     ".": "./src/index.ts",
     "./seo": "./src/seo.ts",
     "./prerender": "./src/prerender.ts",
-    "./auth-ui": "./src/authUi.tsx"
+    "./auth-ui": "./src/authUi.tsx",
+    "./theme": "./src/theme.ts"
   },
   "peerDependencies": {
     "react": ">=18",
