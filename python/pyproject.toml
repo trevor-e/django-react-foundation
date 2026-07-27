@@ -16,6 +16,10 @@ auth = ["djangorestframework-simplejwt>=5.5"]
 celery = ["celery>=5.3", "redis>=5.0"]
 realtime = ["redis>=5.0"]
 logging = ["django-structlog>=10.0"]
+# drf_foundation.crons wraps sentry_sdk.monitor. The import is lazy, so the module is
+# importable and its schedules testable without this extra — right up until you call
+# CronRegistry.monitor().
+sentry = ["sentry-sdk>=2.0"]
 
 [project.entry-points.pytest11]
 drf_foundation = "drf_foundation.pytest_plugin"
@@ -36,6 +40,7 @@ dev = [
     "djangorestframework-simplejwt>=5.5",
     "redis>=5.0",
     "django-structlog>=10.0",
+    "sentry-sdk>=2.0",
 ]
 
 [tool.ruff]
