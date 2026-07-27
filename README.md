@@ -100,6 +100,22 @@ export const API_BASE_URL = resolveApiBaseUrl({
 
 ### 2. The API client
 
+Two auth modes, one client — pass **exactly one** of `tokenStorage` or `session`:
+
+| | JWT mode (`tokenStorage`) | Session mode (`session`) |
+|---|---|---|
+| Credential | access/refresh tokens your code stores | `HttpOnly` session cookie the browser holds |
+| Readable by page JS | yes — an XSS can exfiltrate a replayable token | no |
+| Per request | `Authorization: Bearer` | `credentials: 'include'` + `X-CSRFToken` on unsafe methods |
+| On `401` | refresh once, retry once | terminal — `onAuthFailure` fires |
+| Cross-*site* frontend | works | cannot authenticate: the cookie is `SameSite=Lax` by design |
+
+Prefer session mode (paired with `drf_foundation.session_auth`) when the only browser
+client is a first-party SPA on the same site as the API. Reach for JWT mode when clients
+are cross-site or native.
+
+#### JWT mode
+
 ```ts
 // src/lib/api.ts
 import { createApiClient, createLocalStorageTokenStorage } from 'react-vite-foundation'
@@ -135,6 +151,53 @@ export async function getWidget(id: string) {
   if it isn't wrapped, so this also works against non-enveloped endpoints);
 - returns `undefined` for a `204`;
 - throws `ApiRequestError` (carries `.status`) for any other non-`2xx` response.
+
+#### Session mode
+
+```ts
+// src/lib/api.ts
+import { createApiClient, createSessionHint } from 'react-vite-foundation'
+import { API_BASE_URL } from './config'
+
+export const sessionHint = createSessionHint() // key: session_hint
+let csrfToken: string | null = null
+
+export const setCsrfToken = (token: string) => {
+  csrfToken = token
+}
+
+export const apiClient = createApiClient({
+  baseUrl: API_BASE_URL,
+  session: {
+    getCsrfToken: () => csrfToken,
+    setCsrfToken,
+    // csrfEndpoint defaults to /api/auth/csrf (drf_foundation.session_auth.csrf_token)
+  },
+  onAuthFailure: () => {
+    sessionHint.clear()
+    window.location.href = '/login'
+  },
+})
+```
+
+In session mode `request<T>()`:
+- sends `credentials: 'include'` on every call and no `Authorization` header;
+- adds `X-CSRFToken` to unsafe methods only, fetching a token from `csrfEndpoint` first
+  if it doesn't have one (single-flight). Reads never trigger that fetch, so a visitor who
+  only browses public pages never starts a session;
+- retries once on a CSRF-rejected `403` after re-fetching the token — the server rotates
+  it on login/logout/password change, so a long-lived page can hold a stale one. A `403`
+  that isn't a CSRF failure is passed straight through;
+- treats `401` as terminal: there is nothing to refresh, so it calls `onAuthFailure` and
+  throws;
+- unwraps envelopes, returns `undefined` for `204`, and throws `ApiRequestError`
+  otherwise, exactly as in JWT mode.
+
+Your auth service stores the `csrf_token` each auth response returns, and sets/clears the
+session hint — the non-secret "probably signed in" flag route guards and the prerender
+auth gate read, since an `HttpOnly` cookie is invisible to JavaScript. It is not a
+credential: the server stays the only authority, and a stale hint costs one `401` and a
+redirect.
 
 ### 3. Query keys
 

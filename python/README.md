@@ -92,10 +92,58 @@ def health_check(request): ...
 
 Grep `public_endpoint` at any time for the complete, auditable public-route allowlist.
 
+### Browser auth: pick one module
+
+Two wire contracts ship here, matching the two modes of `react-vite-foundation`'s
+apiClient. Mount one set of routes, not both:
+
+- **`drf_foundation.session_auth`** — Django's session cookie. `HttpOnly`, so page
+  JavaScript cannot read or leak the credential, and revocation is a session-row delete.
+  DRF's `SessionAuthentication` enforces CSRF for you, on cookie-authenticated unsafe
+  methods only. The trade: a frontend on a *different site* never receives the cookie, so
+  it cannot authenticate at all. Pair with `session_auth_settings()`.
+- **`drf_foundation.auth`** — simplejwt access/refresh pair (needs the `auth` extra). For
+  cross-site or native clients. Its tokens are readable by page JavaScript, so any
+  successful XSS can exfiltrate a replayable credential.
+
+```python
+# accounts/urls.py — session auth
+from drf_foundation.session_auth import LoginView, csrf_token, logout
+
+urlpatterns = [
+    path("auth/csrf", csrf_token, name="auth-csrf"),
+    path("auth/login", LoginView.as_view(), name="auth-login"),
+    path("auth/logout", logout, name="auth-logout"),
+]
+```
+
+```python
+# settings.py
+from drf_foundation.settings_helpers import session_auth_settings
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
+    ...,
+}
+globals().update(session_auth_settings(cross_origin_spa=True))
+```
+
+`session_auth_settings()` sets `CSRF_USE_SESSIONS`, so the CSRF secret lives in the
+session and no CSRF cookie is set — a project can ship with exactly one cookie, none of
+it readable by JavaScript. The token reaches the SPA as a response value instead:
+`GET /api/auth/csrf` returns it, and every endpoint that starts or ends a session returns
+the rotated one (`django.contrib.auth.login` rotates it), so clients never have to
+re-fetch. Registration stays project code — call `start_session(request, user)` after
+creating the user.
+
 Rate-limit anonymous auth endpoints and personal-API-token traffic:
 
 ```python
-from drf_foundation.throttling import LoginRateThrottle, RegisterRateThrottle
+from drf_foundation.throttling import (
+    CsrfBootstrapRateThrottle,
+    LoginRateThrottle,
+    RegisterRateThrottle,
+)
 
 class LoginView(...):
     throttle_classes = (LoginRateThrottle,)

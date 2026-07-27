@@ -135,9 +135,50 @@ def production_security_settings(
     }
 
 
+def session_auth_settings(
+    *, cookie_age_days: int = 14, cross_origin_spa: bool = False
+) -> dict[str, Any]:
+    """Session-cookie browser auth (``drf_foundation.session_auth``), safe defaults.
+
+    Apply unconditionally — every value here is correct in dev too, except
+    ``SESSION_COOKIE_SECURE``, which ``production_security_settings()`` turns on in prod
+    (dev has no HTTPS). Order the two so the production block wins.
+
+    - ``CSRF_USE_SESSIONS`` keeps the CSRF secret in the session, so the product sets one
+      cookie total and none readable by JavaScript. The token reaches the SPA as a
+      response *value* instead (see :mod:`drf_foundation.session_auth`).
+    - ``SameSite=Lax`` is the whole cross-site story: the cookie rides same-site XHR
+      (including to an ``api.`` subdomain of the frontend's registrable domain) and is
+      never sent cross-site. A frontend on a *different* site therefore cannot
+      authenticate at all — that is the trade this module accepts, not a bug to patch
+      with ``SameSite=None``.
+    - Sliding expiry (``SESSION_SAVE_EVERY_REQUEST``): an active user is not logged out
+      mid-use, an idle one expires ``cookie_age_days`` after their last request.
+
+    ``cross_origin_spa=True`` adds the CORS credential flag a separate frontend origin
+    needs. The project still owns ``CORS_ALLOWED_ORIGINS``/``CSRF_TRUSTED_ORIGINS`` —
+    those are per-environment values, not doctrine.
+    """
+    settings: dict[str, Any] = {
+        "SESSION_COOKIE_AGE": cookie_age_days * 24 * 60 * 60,
+        "SESSION_COOKIE_HTTPONLY": True,
+        "SESSION_COOKIE_SAMESITE": "Lax",
+        "SESSION_EXPIRE_AT_BROWSER_CLOSE": False,
+        "SESSION_SAVE_EVERY_REQUEST": True,
+        "CSRF_USE_SESSIONS": True,
+    }
+    if cross_origin_spa:
+        settings["CORS_ALLOW_CREDENTIALS"] = True
+    return settings
+
+
 def simple_jwt_defaults() -> dict[str, Any]:
     """SIMPLE_JWT matching the apiClient contract: rotating refresh tokens with
-    blacklist (requires `rest_framework_simplejwt.token_blacklist` installed)."""
+    blacklist (requires `rest_framework_simplejwt.token_blacklist` installed).
+
+    JWT is the cross-site/native option; for a same-site first-party SPA prefer
+    :func:`session_auth_settings` + :mod:`drf_foundation.session_auth`, where the
+    credential is an ``HttpOnly`` cookie JavaScript cannot read."""
     from datetime import timedelta
 
     return {

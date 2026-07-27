@@ -1,5 +1,11 @@
 """JWT auth wire-contract building blocks (requires the `auth` extra: simplejwt).
 
+Pick this module when clients are cross-site, native, or otherwise cannot rely on
+cookies. For a first-party SPA on the same site as the API, prefer
+:mod:`drf_foundation.session_auth`: the tokens here are readable by page JavaScript, so
+any successful XSS can exfiltrate a replayable credential, while a session cookie is
+``HttpOnly``.
+
 The `react-vite-foundation` apiClient speaks one shape: `access_token`/`refresh_token`
 keys, `/api/auth/refresh` accepting `{"refresh_token": ...}`, bare (un-enveloped)
 token responses. These views/serializers implement that contract against
