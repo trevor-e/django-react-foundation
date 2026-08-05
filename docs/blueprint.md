@@ -267,10 +267,15 @@ Rules that matter:
 ## 6. Type checking as a gate
 
 pyrefly configured in `pyproject.toml` (`project-includes`, exclude migrations/tests,
-`replace-imports-with-any` for untyped third-party apps). The discipline that pays off:
-**zero new suppressions** — every `# pyrefly: ignore` is justified inline (ORM-dynamic
-accessors, query annotations) and adding one is a deliberate, reviewable act. `make
-typecheck` is a real gate, not advisory.
+`replace-imports-with-any` for untyped third-party apps). The excludes are exhaustive
+and both heuristics are off (`disable-project-excludes-heuristics`, `use-ignore-files`):
+pyrefly's implicit defaults — a hidden-dir glob plus `.gitignore`/`.git/info/exclude`
+patterns — match against the *absolute* project path, so a checkout under any dotted
+directory (agent worktrees like `.claude/worktrees/`, CI caches) excludes itself and
+typecheck fails on clean code with "No Python files matched". The discipline that pays
+off: **zero new suppressions** — every `# pyrefly: ignore` is justified inline
+(ORM-dynamic accessors, query annotations) and adding one is a deliberate, reviewable
+act. `make typecheck` is a real gate, not advisory.
 
 ---
 

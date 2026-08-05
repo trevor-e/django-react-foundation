@@ -50,7 +50,17 @@ ignore = ["ANN401"]
 
 [tool.pyrefly]
 project-includes = ["**/*.py"]
-project-excludes = ["**/migrations/**", "**/tests/**", ".venv/**"]
+# The last three excludes are pyrefly's own defaults, restated so they anchor to
+# this directory. Left implicit, pyrefly appends them plus a hidden-dir glob and
+# the repo ignore files, all matched against the ABSOLUTE path — so a checkout
+# under any dotted directory (agent worktrees like .claude/worktrees/, CI caches)
+# excludes itself, pyrefly checks zero files, and typecheck fails on clean code.
+project-excludes = [
+    "**/migrations/**", "**/tests/**", ".venv/**",
+    "**/node_modules", "**/__pycache__", "**/.[!/.]*/**",
+]
+disable-project-excludes-heuristics = true
+use-ignore-files = false
 replace-imports-with-any = ["celery.*"]
 
 [tool.pytest.ini_options]
