@@ -350,9 +350,9 @@ sync.start()
 
 `createCursorSync` pumps until an empty page on every doorbell and every (re)connect,
 skips doorbells ≤ the local cursor (your own command's echo), coalesces pumps
-single-flight, and exposes `pump()` for manual catch-up (e.g. after a stale-cursor
-409). The store owns the cursor, so a page refresh resumes from wherever its snapshot
-loading left it.
+single-flight, retries failed pumps on the backoff schedule, and exposes `pump()` for
+manual catch-up (e.g. after a stale-cursor 409). The store owns the cursor, so a page
+refresh resumes from wherever its snapshot loading left it.
 
 ### Testing
 

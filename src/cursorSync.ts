@@ -89,6 +89,27 @@ export function createCursorSync<TItem>(options: CursorSyncOptions<TItem>): Curs
     return current
   }
 
+  // Doorbell pumps are fire-and-forget, so a failed fetch while the stream stays
+  // healthy would otherwise leave the client stale until the next doorbell. Retry on
+  // the backoff schedule; a hidden tab skips the retry (the resume reconnect pumps
+  // anyway) and any successful pump resets the clock.
+  const pumpWithRetry = (): void => {
+    clearTimeout(retryTimer)
+    pump().then(
+      () => {
+        retryAttempt = 0
+      },
+      () => {
+        if (!active) return
+        retryAttempt += 1
+        const delay = Math.min(maxBackoff, minBackoff * 2 ** (retryAttempt - 1))
+        retryTimer = setTimeout(() => {
+          if (active && !(doc?.hidden ?? false)) pumpWithRetry()
+        }, delay)
+      },
+    )
+  }
+
   const loop = createStreamLoop({
     streamUrl: options.streamUrl,
     getToken: options.getToken,
@@ -96,18 +117,31 @@ export function createCursorSync<TItem>(options: CursorSyncOptions<TItem>): Curs
     minBackoffMs: options.minBackoffMs,
     maxBackoffMs: options.maxBackoffMs,
     doc: options.doc,
-    beforeConnect: pump,
+    beforeConnect: () =>
+      pump().then(() => {
+        // A successful connect catch-up supersedes any pending doorbell retry.
+        clearTimeout(retryTimer)
+        retryAttempt = 0
+      }),
     onFrame: (frame) => {
       // Data frames carry the head seq; named events (`connected`) don't.
       if (frame.event !== undefined || !frame.data) return
       const head = Number(frame.data)
       if (Number.isFinite(head) && head <= options.getCursor()) return // stale doorbell
-      void pump().catch(() => {
-        // Fetch failed while the stream is healthy — the next doorbell (or the
-        // reconnect loop, if the stream drops too) retries.
-      })
+      pumpWithRetry()
     },
   })
 
-  return { start: loop.start, stop: loop.stop, pump }
+  return {
+    start() {
+      active = true
+      loop.start()
+    },
+    stop() {
+      active = false
+      clearTimeout(retryTimer)
+      loop.stop()
+    },
+    pump,
+  }
 }

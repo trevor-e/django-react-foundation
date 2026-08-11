@@ -233,4 +233,34 @@ describe('createCursorSync', () => {
     expect(world.fetchAfter.mock.calls.length).toBe(1) // guard broke the loop
     sync.stop()
   })
+
+  it('retries a failed doorbell pump instead of waiting for the next doorbell', async () => {
+    const s = sseStream()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(s.response))
+    const world = makeWorld()
+    let failNext = false
+    const flaky = vi.fn(async (after: number) => {
+      if (failNext) {
+        failNext = false
+        throw new Error('api blip')
+      }
+      return world.server.filter((e) => e.seq > after).slice(0, 100)
+    })
+    const sync = createCursorSync({
+      streamUrl: 'https://x/stream',
+      fetchAfter: flaky,
+      apply: world.apply,
+      getCursor: world.getCursor,
+      doc: null,
+      minBackoffMs: 1,
+      maxBackoffMs: 2,
+    })
+    sync.start()
+    await vi.waitFor(() => expect(flaky).toHaveBeenCalledTimes(1)) // connect pump (empty)
+    world.push('a')
+    failNext = true
+    s.push('data: 1\n\n') // doorbell pump fails; no further doorbell will come
+    await vi.waitFor(() => expect(world.applied).toEqual(['a'])) // healed by the retry
+    sync.stop()
+  })
 })
