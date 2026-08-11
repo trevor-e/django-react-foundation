@@ -205,7 +205,7 @@ describe('error detail surfacing', () => {
       tokenStorage: createMemoryTokenStorage(),
     })
 
-    const error = await client.request('/api/x').catch((e) => e as ApiRequestError)
+    const error = (await client.request('/api/x').catch((e: unknown) => e)) as ApiRequestError
 
     expect(error).toBeInstanceOf(ApiRequestError)
     expect(error.message).toBe('target is out of range')
@@ -222,7 +222,7 @@ describe('error detail surfacing', () => {
       tokenStorage: createMemoryTokenStorage(),
     })
 
-    const error = await client.request('/api/x').catch((e) => e as ApiRequestError)
+    const error = (await client.request('/api/x').catch((e: unknown) => e)) as ApiRequestError
 
     expect(error.message).toBe('API request failed: Bad Gateway')
     expect(error.body).toBeUndefined()
@@ -237,7 +237,7 @@ describe('error detail surfacing', () => {
       tokenStorage: createMemoryTokenStorage(),
     })
 
-    const error = await client.request('/api/x').catch((e) => e as ApiRequestError)
+    const error = (await client.request('/api/x').catch((e: unknown) => e)) as ApiRequestError
 
     expect(error.status).toBe(409)
     expect((error.body as { head: number }).head).toBe(6)
