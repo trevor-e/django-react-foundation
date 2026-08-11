@@ -150,7 +150,10 @@ export async function getWidget(id: string) {
 - unwraps a `{status, data}` success envelope automatically (falls back to the raw body
   if it isn't wrapped, so this also works against non-enveloped endpoints);
 - returns `undefined` for a `204`;
-- throws `ApiRequestError` (carries `.status`) for any other non-`2xx` response.
+- throws `ApiRequestError` for any other non-`2xx` response — `.message` is the error
+  envelope's `detail` when the body has one (generic otherwise), `.status` the HTTP
+  status, and `.body` the parsed JSON error body for structured payloads (e.g. a
+  stale-cursor `409`'s `{events, head}`).
 
 #### Session mode
 
@@ -322,6 +325,37 @@ never boots. Vite's `vite:preloadError` can't help — it only covers lazy chunk
 *after* boot, and here the entry itself never ran. The guard reloads with backoff, at
 most 3 times per rolling minute (sessionStorage) so a genuinely broken deploy can't
 loop.
+
+### 8. Realtime sync (SSE doorbell → invalidate or cursor-fold)
+
+Two flavors over one shared stream loop (reconnect backoff, hidden-tab pausing,
+catch-up on every (re)connect; pairs with `drf_foundation.realtime` / `.event_log`):
+
+```ts
+// Invalidate-and-refetch (CRUD apps): a data frame or a moved head -> onChange().
+const sync = createRealtimeSync({
+  streamUrl: `${API_BASE_URL}/api/stream`,
+  getToken: () => tokenStorage.getAccessToken(), // or credentials: 'include'
+  fetchHead: () => apiClient.request<string | null>('/api/changes/head'),
+  onChange: () => queryClient.invalidateQueries({ queryKey: rootKey }),
+})
+
+// Ordered event logs (games, chat, feeds): exactly-once, in-order, resumable.
+const sync = createCursorSync<GameEvent>({
+  streamUrl: `${API_BASE_URL}/api/wars/${id}/stream`,
+  getToken: () => tokenStorage.getAccessToken(),
+  fetchAfter: (cursor) => apiClient.request<GameEvent[]>(`/api/wars/${id}/events?after=${cursor}`),
+  apply: (events) => store.fold(events),   // must advance getCursor() past them
+  getCursor: () => store.cursor,
+})
+sync.start()
+```
+
+`createCursorSync` pumps until an empty page on every doorbell and every (re)connect,
+skips doorbells ≤ the local cursor (your own command's echo), coalesces pumps
+single-flight, retries failed pumps on the backoff schedule, and exposes `pump()` for
+manual catch-up (e.g. after a stale-cursor 409). The store owns the cursor, so a page
+refresh resumes from wherever its snapshot loading left it.
 
 ### Testing
 

@@ -31,3 +31,34 @@ def test_dump_json_schema_is_deterministic():
     second = dump_json_schema()
     assert first == second
     assert first.endswith("\n")
+
+
+def test_defaulted_fields_are_required_in_serialization():
+    """The response path always emits defaults (`ok()` dumps without exclude_*), so
+    the wire contract marks them required — literal discriminants especially, which
+    would otherwise generate as optional TS and break discriminated narrowing."""
+    from drf_foundation.wire_schema import build_json_schema
+
+    schema = build_json_schema()
+    widget = schema["$defs"]["WidgetKind"]
+    assert "kind" in widget["required"]
+    assert widget["properties"]["kind"]["default"] == "widget"
+
+
+def test_require_defaulted_fields_never_treats_a_properties_map_as_a_schema():
+    """A field literally *named* ``properties`` sits as a key in the properties map —
+    the walk must not mistake the map for an object schema and inject a phantom
+    ``required`` entry into it (the same trap ``_strip_titles`` guards against)."""
+    from drf_foundation.wire_schema import _require_defaulted_fields
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "properties": {
+                "type": "object",
+                "additionalProperties": {"type": "string", "default": "x"},
+            },
+        },
+    }
+    result = _require_defaulted_fields(schema)
+    assert set(result["properties"].keys()) == {"properties"}

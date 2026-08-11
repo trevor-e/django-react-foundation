@@ -1,4 +1,4 @@
-import { readEventStream } from './sse'
+import { createStreamLoop } from './streamLoop'
 
 /** Options for `createRealtimeSync` — the client half of the realtime pattern
  * (`drf_foundation.realtime` is the server half). */
@@ -43,90 +43,33 @@ export interface RealtimeSync {
  *   moved since last seen — closing gaps from disconnects and hidden pauses;
  * - `document.hidden` aborts the stream (parked tabs hold no connections); return
  *   to foreground reconnects immediately with that same catch-up check.
+ *
+ * This is the invalidate-and-refetch flavor; when the server keeps an *ordered*
+ * event log, prefer `createCursorSync`, which fetches and applies the items
+ * themselves instead of just signalling "something changed".
  */
 export function createRealtimeSync(options: RealtimeSyncOptions): RealtimeSync {
-  const minBackoff = options.minBackoffMs ?? 2_000
-  const maxBackoff = options.maxBackoffMs ?? 30_000
-  const doc = options.doc === undefined ? document : options.doc
-
-  let stopped = true
-  let connecting = false
-  let controller: AbortController | null = null
-  let timer: ReturnType<typeof setTimeout> | undefined
-  let attempt = 0
   // undefined = never fetched (the first check must not fire onChange).
   let lastHead: string | null | undefined
 
-  const hidden = () => doc?.hidden ?? false
-
-  const checkHead = async () => {
-    const head = await options.fetchHead()
-    if (lastHead !== undefined && head !== lastHead) options.onChange()
-    lastHead = head
-  }
-
-  const scheduleRetry = () => {
-    if (stopped || hidden()) return
-    attempt += 1
-    const delay = Math.min(maxBackoff, minBackoff * 2 ** (attempt - 1))
-    timer = setTimeout(connect, delay)
-  }
-
-  const connect = async () => {
-    if (stopped || hidden() || connecting) return
-    connecting = true
-    try {
-      await checkHead()
-      controller = new AbortController()
-      await readEventStream(
-        options.streamUrl,
-        options.getToken?.() ?? null,
-        controller.signal,
-        {
-          onOpen: () => {
-            attempt = 0
-          },
-          onFrame: (frame) => {
-            // Data frames carry a change id; named events (`connected`) don't.
-            if (frame.event === undefined && frame.data) {
-              lastHead = frame.data
-              options.onChange()
-            }
-          },
-        },
-        { credentials: options.credentials },
-      )
-    } catch {
-      // Aborted (stop/hidden), auth failure, or network drop — the retry
-      // scheduler decides; fetchHead's client already handled token refresh.
-    }
-    connecting = false
-    scheduleRetry()
-  }
-
-  const onVisibilityChange = () => {
-    if (hidden()) {
-      controller?.abort()
-      clearTimeout(timer)
-    } else {
-      clearTimeout(timer)
-      attempt = 0
-      void connect()
-    }
-  }
-
-  return {
-    start() {
-      if (!stopped) return
-      stopped = false
-      doc?.addEventListener('visibilitychange', onVisibilityChange)
-      void connect()
+  return createStreamLoop({
+    streamUrl: options.streamUrl,
+    getToken: options.getToken,
+    credentials: options.credentials,
+    minBackoffMs: options.minBackoffMs,
+    maxBackoffMs: options.maxBackoffMs,
+    doc: options.doc,
+    beforeConnect: async () => {
+      const head = await options.fetchHead()
+      if (lastHead !== undefined && head !== lastHead) options.onChange()
+      lastHead = head
     },
-    stop() {
-      stopped = true
-      doc?.removeEventListener('visibilitychange', onVisibilityChange)
-      controller?.abort()
-      clearTimeout(timer)
+    onFrame: (frame) => {
+      // Data frames carry a change id; named events (`connected`) don't.
+      if (frame.event === undefined && frame.data) {
+        lastHead = frame.data
+        options.onChange()
+      }
     },
-  }
+  })
 }

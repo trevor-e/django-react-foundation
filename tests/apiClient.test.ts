@@ -187,3 +187,59 @@ describe('createApiClient', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('https://dynamic.test/api/x')
   })
 })
+
+describe('error detail surfacing', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  it('uses the error envelope detail as the message and attaches the body', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ status: 'error', detail: 'target is out of range' }, { status: 400 }),
+    )
+    const client = createApiClient({
+      baseUrl: 'https://api.test',
+      tokenStorage: createMemoryTokenStorage(),
+    })
+
+    const error = (await client.request('/api/x').catch((e: unknown) => e)) as ApiRequestError
+
+    expect(error).toBeInstanceOf(ApiRequestError)
+    expect(error.message).toBe('target is out of range')
+    expect(error.status).toBe(400)
+    expect(error.body).toEqual({ status: 'error', detail: 'target is out of range' })
+  })
+
+  it('falls back to the generic message for non-JSON error bodies', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response('<h1>Bad Gateway</h1>', { status: 502, statusText: 'Bad Gateway' }),
+    )
+    const client = createApiClient({
+      baseUrl: 'https://api.test',
+      tokenStorage: createMemoryTokenStorage(),
+    })
+
+    const error = (await client.request('/api/x').catch((e: unknown) => e)) as ApiRequestError
+
+    expect(error.message).toBe('API request failed: Bad Gateway')
+    expect(error.body).toBeUndefined()
+  })
+
+  it('keeps structured 409 bodies readable (the stale-cursor contract)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ status: 'stale', events: [{ seq: 6 }], head: 6 }, { status: 409 }),
+    )
+    const client = createApiClient({
+      baseUrl: 'https://api.test',
+      tokenStorage: createMemoryTokenStorage(),
+    })
+
+    const error = (await client.request('/api/x').catch((e: unknown) => e)) as ApiRequestError
+
+    expect(error.status).toBe(409)
+    expect((error.body as { head: number }).head).toBe(6)
+  })
+})

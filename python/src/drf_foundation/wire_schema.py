@@ -96,6 +96,45 @@ def _strip_titles(node: Any) -> Any:
     return node
 
 
+def _require_defaulted_fields(node: Any) -> Any:
+    """Mark default-valued properties as required, recursively.
+
+    Pydantic's serialization schema leaves fields with defaults out of ``required`` —
+    but this foundation's response path (``ok()`` → ``model_dump(mode="json")``)
+    always emits them, defaults included. Without this, every literal discriminant
+    (``type: Literal["unit_moved"] = "unit_moved"``) and defaulted field generates as
+    *optional* TS, and downstream code can't index on discriminants without
+    non-null ceremony. Marking them required is the faithful wire contract.
+    """
+    if isinstance(node, dict):
+        # Same name-map-aware traversal as _strip_titles: recurse into the *values* of
+        # properties/$defs/... maps without ever handing the map itself to the schema
+        # logic below — a field literally named "properties" must not make its
+        # enclosing map look like an object schema and grow a phantom "required".
+        result: dict[str, Any] = {}
+        for key, value in node.items():
+            if key in _NAME_MAP_KEYWORDS and isinstance(value, dict):
+                result[key] = {
+                    name: _require_defaulted_fields(subschema) for name, subschema in value.items()
+                }
+            else:
+                result[key] = _require_defaulted_fields(value)
+        properties = result.get("properties")
+        if isinstance(properties, dict):
+            required = set(result.get("required", []))
+            defaulted = {
+                name
+                for name, prop in properties.items()
+                if isinstance(prop, dict) and "default" in prop
+            }
+            if defaulted - required:
+                result["required"] = sorted(required | defaulted)
+        return result
+    if isinstance(node, list):
+        return [_require_defaulted_fields(item) for item in node]
+    return node
+
+
 def build_json_schema() -> dict[str, Any]:
     """Build the combined JSON Schema document for all discovered wire models.
 
@@ -111,7 +150,7 @@ def build_json_schema() -> dict[str, Any]:
         ref_template="#/$defs/{model}",
         title=title,
     )
-    return _strip_titles(combined)
+    return _require_defaulted_fields(_strip_titles(combined))
 
 
 def dump_json_schema() -> str:
