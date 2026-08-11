@@ -52,6 +52,7 @@ class EventStreamRenderer(BaseRenderer):
             return data.encode()
         return json.dumps(data).encode()
 
+
 # Lazy singleton per URL; redis-py clients are thread-safe and reconnect per command,
 # so one client serves web threads and Celery workers alike.
 _clients: dict[str, object] = {}
