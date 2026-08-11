@@ -19,7 +19,8 @@ export interface CursorSyncOptions<TItem> {
   apply: (items: TItem[]) => void
   /** The store's current cursor: seq of the last applied item, 0 when none. */
   getCursor: () => number
-  /** Reconnect backoff bounds. Defaults: 2s doubling to 30s. */
+  /** Backoff bounds for reconnects and failed-pump retries. Defaults: 2s doubling
+   * to 30s. */
   minBackoffMs?: number
   maxBackoffMs?: number
   /** Visibility source; defaults to `document`. Pass null to disable hidden-pausing. */
@@ -45,12 +46,22 @@ export interface CursorSync {
  *   applied its own command's events from the command response). Correctness never
  *   depends on frame content: every reconnect pumps unconditionally.
  * - Pumps are single-flight; a doorbell landing mid-pump schedules exactly one
- *   follow-up pass. Reconnect backoff, hidden-tab pausing, and catch-up-on-connect
- *   are shared with `createRealtimeSync` (this is the same loop, one level up).
+ *   follow-up pass. A doorbell pump whose fetch fails retries on the backoff
+ *   schedule — on a quiet log the next doorbell may be arbitrarily far away, so
+ *   one failed fetch must not strand the client until then.
+ * - Reconnect backoff, hidden-tab pausing, and catch-up-on-connect are shared with
+ *   `createRealtimeSync` (this is the same loop, one level up).
  */
 export function createCursorSync<TItem>(options: CursorSyncOptions<TItem>): CursorSync {
+  const minBackoff = options.minBackoffMs ?? 2_000
+  const maxBackoff = options.maxBackoffMs ?? 30_000
+  const doc = options.doc === undefined ? document : options.doc
+
   let current: Promise<void> | null = null
   let dirty = false
+  let active = false
+  let retryTimer: ReturnType<typeof setTimeout> | undefined
+  let retryAttempt = 0
 
   const pump = (): Promise<void> => {
     if (current) {

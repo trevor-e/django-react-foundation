@@ -5,9 +5,10 @@ TTL: first connection flips them online, last disconnect flips them offline, ext
 neither. Heartbeats refresh the TTL so a member on a long-lived stream stays present;
 a process that dies without disconnecting stops counting once the TTL lapses.
 
-Semantics are display-grade, deliberately: INCR/EXPIRE aren't atomic, crashes can strand
-a count until the TTL self-heals, and every operation here is fail-soft (a Redis outage
-degrades presence to "offline", never breaks the stream or the caller). Nothing
+Semantics are display-grade, deliberately: a crash that skips ``disconnect`` inflates
+the count until the TTL self-heals it away, and every operation here is fail-soft (a
+Redis outage degrades presence to "offline", never breaks the stream or the caller;
+registration is a single MULTI/EXEC so the key can never land without a TTL). Nothing
 authoritative may depend on presence — use it for green dots and "opponent is online"
 copy, and let readers re-check :func:`is_present` for truth-at-load.
 
@@ -76,12 +77,21 @@ class PresenceTracker:
         if self._on_flip is not None:
             await self._on_flip(online)
 
+    async def _register(self) -> int:
+        """INCR + EXPIRE in one MULTI/EXEC. Atomicity is load-bearing: an INCR that
+        landed without its EXPIRE would leave a TTL-less key no crash ever heals —
+        the member would read as present forever."""
+        r = self._redis()
+        pipe = r.pipeline(transaction=True)  # pyright: ignore[reportAttributeAccessIssue]
+        pipe.incr(self.key)
+        pipe.expire(self.key, self._ttl)
+        count, _ = await pipe.execute()
+        return count
+
     async def connect(self) -> None:
         """Count this connection in; flips the member online if it's their first."""
         try:
-            r = self._redis()
-            count = await r.incr(self.key)  # pyright: ignore[reportAttributeAccessIssue]
-            await r.expire(self.key, self._ttl)  # pyright: ignore[reportAttributeAccessIssue]
+            count = await self._register()
             self._connected = True
             self._last_refresh = time.monotonic()
             if count == 1:
@@ -105,24 +115,25 @@ class PresenceTracker:
             refreshed = await r.expire(self.key, self._ttl)  # pyright: ignore[reportAttributeAccessIssue]
             self._last_refresh = now
             if not refreshed:
-                count = await r.incr(self.key)  # pyright: ignore[reportAttributeAccessIssue]
-                await r.expire(self.key, self._ttl)  # pyright: ignore[reportAttributeAccessIssue]
+                count = await self._register()
                 if count == 1:
                     await self._flip(True)
         except Exception:
             log.warning("presence heartbeat failed for %s", self.key, exc_info=True)
 
     async def disconnect(self) -> None:
-        """Count this connection out; flips the member offline if it was their last."""
-        if not self._connected:
-            return
-        self._connected = False
+        """Count this connection out; flips the member offline if it was their last.
+
+        Always closes a lazily created client — a failed :meth:`connect` builds one
+        without ever counting the connection in, and it must not leak."""
         try:
-            r = self._redis()
-            count = await r.decr(self.key)  # pyright: ignore[reportAttributeAccessIssue]
-            if count <= 0:
-                await r.delete(self.key)  # pyright: ignore[reportAttributeAccessIssue]
-                await self._flip(False)
+            if self._connected:
+                self._connected = False
+                r = self._redis()
+                count = await r.decr(self.key)  # pyright: ignore[reportAttributeAccessIssue]
+                if count <= 0:
+                    await r.delete(self.key)  # pyright: ignore[reportAttributeAccessIssue]
+                    await self._flip(False)
         except Exception:
             log.warning("presence disconnect failed for %s", self.key, exc_info=True)
         finally:

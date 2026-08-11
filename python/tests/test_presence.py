@@ -6,15 +6,41 @@ import pytest
 from drf_foundation import presence, realtime
 
 
+class _FakePipeline:
+    """Queues incr/expire like redis-py's pipeline and applies them on execute()."""
+
+    def __init__(self, client):
+        self._client = client
+        self._ops = []
+
+    def incr(self, key):
+        self._ops.append(("incr", key))
+        return self
+
+    def expire(self, key, ttl):
+        self._ops.append(("expire", key, ttl))
+        return self
+
+    async def execute(self):
+        results = []
+        for op, *args in self._ops:
+            results.append(await getattr(self._client, op)(*args))
+        self._ops = []
+        return results
+
+
 class _FakeAioRedis:
     """In-memory async redis: enough surface for PresenceTracker (incr/decr/expire/
-    delete) plus test helpers to simulate TTL lapse and count calls."""
+    delete/pipeline) plus test helpers to simulate TTL lapse and count calls."""
 
     def __init__(self):
         self.store = {}
         self.ttls = {}
         self.expire_calls = 0
         self.closed = False
+
+    def pipeline(self, transaction=True):
+        return _FakePipeline(self)
 
     async def incr(self, key):
         self.store[key] = int(self.store.get(key, 0)) + 1
@@ -152,7 +178,9 @@ def test_heartbeat_reregisters_after_ttl_lapse():
 def test_tracker_is_fail_soft(caplog):
     class _Exploding:
         def __getattr__(self, name):
-            async def boom(*args, **kwargs):
+            # Raises at call time (not await time) so sync surface like pipeline()
+            # explodes too, without leaving never-awaited coroutines behind.
+            def boom(*args, **kwargs):
                 raise ConnectionError("redis down")
 
             return boom
@@ -169,6 +197,27 @@ def test_tracker_is_fail_soft(caplog):
         asyncio.run(scenario())
     assert flips == []
     assert "presence connect failed" in caplog.text
+
+
+def test_failed_connect_still_closes_the_owned_client(monkeypatch):
+    """A connect that fails after lazily building its client must not leak it — the
+    stream's on_close still runs disconnect, which owns the cleanup."""
+    import redis.asyncio as aioredis
+
+    class _RegisterExploding(_FakeAioRedis):
+        def pipeline(self, transaction=True):
+            raise ConnectionError("redis down")
+
+    fake = _RegisterExploding()
+    monkeypatch.setattr(aioredis.Redis, "from_url", classmethod(lambda cls, url, **kw: fake))
+    tab = presence.PresenceTracker("redis://x", "war:1", "0")
+
+    async def scenario():
+        await tab.connect()  # builds the client, then fails to register
+        await tab.disconnect()
+
+    asyncio.run(scenario())
+    assert fake.closed
 
 
 def test_is_present_reads_the_count():
