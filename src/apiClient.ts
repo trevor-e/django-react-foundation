@@ -38,7 +38,10 @@ export interface ApiClientOptions {
 export class ApiRequestError extends Error {
   constructor(
     message: string,
-    public readonly status: number
+    public readonly status: number,
+    /** The parsed JSON error body, when there was one — the error envelope's fields
+     * (`detail`, or structured payloads like a 409's `{events, head}`). */
+    public readonly body?: unknown
   ) {
     super(message)
     this.name = 'ApiRequestError'
@@ -178,7 +181,23 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
 
   async function unwrap<T>(response: Response): Promise<T> {
     if (!response.ok) {
-      throw new ApiRequestError(`API request failed: ${response.statusText}`, response.status)
+      // Surface the backend's error envelope: `detail` becomes the message (so UIs
+      // can show "target is out of range" instead of "Bad Request") and the parsed
+      // body rides along for structured error payloads (e.g. a 409's missed events).
+      let body: unknown
+      try {
+        body = await response.json()
+      } catch {
+        // not JSON — fall through to the generic message
+      }
+      const detail = (body as { detail?: unknown } | undefined)?.detail
+      throw new ApiRequestError(
+        typeof detail === 'string' && detail
+          ? detail
+          : `API request failed: ${response.statusText}`,
+        response.status,
+        body,
+      )
     }
 
     // 204 No Content (e.g. a successful DELETE) has no body to parse.
