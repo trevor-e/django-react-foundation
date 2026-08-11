@@ -96,6 +96,34 @@ def _strip_titles(node: Any) -> Any:
     return node
 
 
+def _require_defaulted_fields(node: Any) -> Any:
+    """Mark default-valued properties as required, recursively.
+
+    Pydantic's serialization schema leaves fields with defaults out of ``required`` —
+    but this foundation's response path (``ok()`` → ``model_dump(mode="json")``)
+    always emits them, defaults included. Without this, every literal discriminant
+    (``type: Literal["unit_moved"] = "unit_moved"``) and defaulted field generates as
+    *optional* TS, and downstream code can't index on discriminants without
+    non-null ceremony. Marking them required is the faithful wire contract.
+    """
+    if isinstance(node, dict):
+        result = {key: _require_defaulted_fields(value) for key, value in node.items()}
+        properties = result.get("properties")
+        if isinstance(properties, dict):
+            required = set(result.get("required", []))
+            defaulted = {
+                name
+                for name, prop in properties.items()
+                if isinstance(prop, dict) and "default" in prop
+            }
+            if defaulted - required:
+                result["required"] = sorted(required | defaulted)
+        return result
+    if isinstance(node, list):
+        return [_require_defaulted_fields(item) for item in node]
+    return node
+
+
 def build_json_schema() -> dict[str, Any]:
     """Build the combined JSON Schema document for all discovered wire models.
 
@@ -111,7 +139,7 @@ def build_json_schema() -> dict[str, Any]:
         ref_template="#/$defs/{model}",
         title=title,
     )
-    return _strip_titles(combined)
+    return _require_defaulted_fields(_strip_titles(combined))
 
 
 def dump_json_schema() -> str:

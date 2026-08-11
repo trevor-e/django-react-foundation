@@ -150,7 +150,10 @@ export async function getWidget(id: string) {
 - unwraps a `{status, data}` success envelope automatically (falls back to the raw body
   if it isn't wrapped, so this also works against non-enveloped endpoints);
 - returns `undefined` for a `204`;
-- throws `ApiRequestError` (carries `.status`) for any other non-`2xx` response.
+- throws `ApiRequestError` for any other non-`2xx` response — `.message` is the error
+  envelope's `detail` when the body has one (generic otherwise), `.status` the HTTP
+  status, and `.body` the parsed JSON error body for structured payloads (e.g. a
+  stale-cursor `409`'s `{events, head}`).
 
 #### Session mode
 

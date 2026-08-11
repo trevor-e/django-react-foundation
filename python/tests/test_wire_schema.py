@@ -31,3 +31,15 @@ def test_dump_json_schema_is_deterministic():
     second = dump_json_schema()
     assert first == second
     assert first.endswith("\n")
+
+
+def test_defaulted_fields_are_required_in_serialization():
+    """The response path always emits defaults (`ok()` dumps without exclude_*), so
+    the wire contract marks them required — literal discriminants especially, which
+    would otherwise generate as optional TS and break discriminated narrowing."""
+    from drf_foundation.wire_schema import build_json_schema
+
+    schema = build_json_schema()
+    widget = schema["$defs"]["WidgetKind"]
+    assert "kind" in widget["required"]
+    assert widget["properties"]["kind"]["default"] == "widget"
