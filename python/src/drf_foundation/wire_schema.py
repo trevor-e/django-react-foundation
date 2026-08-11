@@ -107,7 +107,18 @@ def _require_defaulted_fields(node: Any) -> Any:
     non-null ceremony. Marking them required is the faithful wire contract.
     """
     if isinstance(node, dict):
-        result = {key: _require_defaulted_fields(value) for key, value in node.items()}
+        # Same name-map-aware traversal as _strip_titles: recurse into the *values* of
+        # properties/$defs/... maps without ever handing the map itself to the schema
+        # logic below — a field literally named "properties" must not make its
+        # enclosing map look like an object schema and grow a phantom "required".
+        result: dict[str, Any] = {}
+        for key, value in node.items():
+            if key in _NAME_MAP_KEYWORDS and isinstance(value, dict):
+                result[key] = {
+                    name: _require_defaulted_fields(subschema) for name, subschema in value.items()
+                }
+            else:
+                result[key] = _require_defaulted_fields(value)
         properties = result.get("properties")
         if isinstance(properties, dict):
             required = set(result.get("required", []))

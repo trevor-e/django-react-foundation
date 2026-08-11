@@ -43,3 +43,22 @@ def test_defaulted_fields_are_required_in_serialization():
     widget = schema["$defs"]["WidgetKind"]
     assert "kind" in widget["required"]
     assert widget["properties"]["kind"]["default"] == "widget"
+
+
+def test_require_defaulted_fields_never_treats_a_properties_map_as_a_schema():
+    """A field literally *named* ``properties`` sits as a key in the properties map —
+    the walk must not mistake the map for an object schema and inject a phantom
+    ``required`` entry into it (the same trap ``_strip_titles`` guards against)."""
+    from drf_foundation.wire_schema import _require_defaulted_fields
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "properties": {
+                "type": "object",
+                "additionalProperties": {"type": "string", "default": "x"},
+            },
+        },
+    }
+    result = _require_defaulted_fields(schema)
+    assert set(result["properties"].keys()) == {"properties"}
