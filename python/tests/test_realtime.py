@@ -172,3 +172,31 @@ def test_sse_close_hook_fires_when_a_hook_errors(monkeypatch, db):
     asyncio.run(consume_until_error())
     assert calls["close"] == 1
     assert _FakeAsyncRedis.last.ps.closed and _FakeAsyncRedis.last.closed
+
+
+def test_event_stream_renderer_passes_drf_negotiation(db):
+    """A DRF-decorated stream view must accept `Accept: text/event-stream` — without
+    the renderer, negotiation 406s before the view body runs."""
+    from rest_framework.decorators import api_view, renderer_classes
+    from rest_framework.test import APIRequestFactory
+
+    from drf_foundation.permissions import public_endpoint
+
+    @api_view(["GET"])
+    @public_endpoint
+    @renderer_classes([realtime.EventStreamRenderer])
+    def stream_view(request):
+        return realtime.sse_response("redis://nowhere:1", "events:h1")
+
+    request = APIRequestFactory().get("/stream", HTTP_ACCEPT="text/event-stream")
+    response = stream_view(request)
+    assert response.status_code == 200
+    assert response["Content-Type"] == "text/event-stream"
+    response.close()
+
+
+def test_event_stream_renderer_renders_drf_errors_as_json():
+    renderer = realtime.EventStreamRenderer()
+    assert renderer.render({"detail": "not found"}) == b'{"detail": "not found"}'
+    assert renderer.render("plain") == b"plain"
+    assert renderer.render(b"raw") == b"raw"

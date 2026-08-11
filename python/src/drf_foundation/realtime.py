@@ -12,12 +12,45 @@ The SSE response must be served under ASGI (blueprint §11a) — the generator i
 and would pin a whole thread per client on WSGI.
 """
 
+import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 
 from django.http import StreamingHttpResponse
+from rest_framework.renderers import BaseRenderer
 
 log = logging.getLogger(__name__)
+
+
+class EventStreamRenderer(BaseRenderer):
+    """Satisfies DRF content negotiation for SSE endpoints.
+
+    A DRF-decorated view 406s ``Accept: text/event-stream`` before the view body
+    ever runs — DRF's default renderers only speak JSON. Declare this on stream
+    views::
+
+        @api_view(["GET"])
+        @renderer_classes([EventStreamRenderer])
+        def my_stream(request): ...
+        return sse_response(...)
+
+    The happy path never renders (``sse_response`` returns a ``StreamingHttpResponse``,
+    which DRF passes through untouched); ``render`` only runs for pre-stream DRF
+    errors (401/403/404), which it emits as JSON bytes so error bodies stay readable
+    to the reconnecting client.
+    """
+
+    media_type = "text/event-stream"
+    format = "event-stream"
+    charset = None
+    render_style = "binary"
+
+    def render(self, data: object, accepted_media_type=None, renderer_context=None) -> bytes:  # noqa: ANN001
+        if isinstance(data, bytes):
+            return data
+        if isinstance(data, str):
+            return data.encode()
+        return json.dumps(data).encode()
 
 # Lazy singleton per URL; redis-py clients are thread-safe and reconnect per command,
 # so one client serves web threads and Celery workers alike.
