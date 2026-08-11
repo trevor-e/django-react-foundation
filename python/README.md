@@ -227,6 +227,37 @@ check-in across the beat and worker processes (so short tasks report as minutes 
 and emits no thresholds (so monitors inherit Sentry's hair-trigger defaults). See the
 module docstring.
 
+## Realtime: doorbell SSE, ordered event logs, presence
+
+Three layers, use what you need (`django-drf-foundation[realtime]` for redis-py):
+
+- **`drf_foundation.realtime`** — `publish(redis_url, channel, msg)` (fail-soft: a
+  Redis outage never breaks the write path) + `sse_response(...)` (async SSE relay with
+  proxy heartbeats). SSE is a *doorbell*: no payloads on the stream, the database stays
+  the mailbox. Optional per-connection lifecycle hooks (`on_open`/`on_tick`/`on_close`,
+  async callables) let concerns like presence ride the stream.
+- **`drf_foundation.event_log`** — the ordered-log upgrade for feeds that need
+  exactly-once, in-order delivery with resume (games, chat, notifications). Subclass
+  the abstract `EventLogEntry` with your scope FK + unique `(scope, seq)` constraint,
+  then: `append_events(qs, rows, extra_fields=...)` (contiguous seqs — hold the scope's
+  `select_for_update` lock), `events_after(qs, after, limit=...)` +
+  `after_param(request)` for the `events?after=` endpoint, and
+  `publish_after_commit(...)` so the doorbell only rings for committed events. Pairs
+  with `createCursorSync` in the JS package.
+- **`drf_foundation.presence`** — best-effort "who's connected": `PresenceTracker`
+  (refcounted Redis TTL key per member; `connect`/`heartbeat`/`disconnect` map onto the
+  SSE hooks; `on_flip(online)` fires only on transitions) and a sync, fail-soft
+  `is_present()` for views and background jobs. Display-grade by design — TTLs
+  self-heal crashes; never gate anything authoritative on it.
+
+```python
+tracker = PresenceTracker(REDIS_URL, group=f"war:{war.id}", member=str(seat),
+                          on_flip=record_flip)  # async callable
+return sse_response(REDIS_URL, f"war:{war.id}",
+                    on_open=tracker.connect, on_tick=tracker.heartbeat,
+                    on_close=tracker.disconnect)
+```
+
 ## Testing
 
 ```bash
