@@ -57,6 +57,20 @@ def test_sse_response_shape(db):
     response.close()
 
 
+def test_sse_response_releases_the_db_connection(db, monkeypatch):
+    # Endless responses never reach Django's end-of-request cleanup, so the view's
+    # DB connection would stay checked out of the pool forever — a handful of open
+    # streams then starves every other request (PoolTimeout). sse_response must
+    # hand the connection back itself. (Asserted as a spy on close(): the real
+    # effect is invisible on test backends — atomic wrappers defer it and
+    # in-memory sqlite refuses to close at all.)
+    calls: list[bool] = []
+    monkeypatch.setattr(realtime.db_connection, "close", lambda: calls.append(True))
+    response = realtime.sse_response("redis://nowhere:1", "events:h1")
+    assert calls, "sse_response must return the request's DB connection to the pool"
+    response.close()
+
+
 class _FakePubSub:
     """Replays scripted messages, then reports idle (None -> heartbeat) forever."""
 

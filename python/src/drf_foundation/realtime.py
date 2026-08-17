@@ -16,6 +16,7 @@ import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 
+from django.db import connection as db_connection
 from django.http import StreamingHttpResponse
 from rest_framework.renderers import BaseRenderer
 
@@ -110,6 +111,14 @@ def sse_response(
 
     Serving note: streams never finish, so granian needs ``--workers-kill-timeout``
     or every graceful stop wedges on the first connected client (blueprint §11a).
+
+    Because the stream never finishes, Django's end-of-request cleanup never runs
+    for it either — whatever pooled DB connection the view's auth/tenancy work
+    used would stay checked out for the connection's whole life. A handful of
+    open streams would then exhaust a small pool (§1b bounds default to 5) and
+    starve every other request into ``PoolTimeout``. This function therefore
+    returns the request's DB connection to the pool itself, right before
+    handing back the response — do all DB work before calling it.
     """
 
     async def frames() -> AsyncIterator[str]:
@@ -144,6 +153,9 @@ def sse_response(
             finally:
                 await pubsub.aclose()
                 await client.aclose()
+
+    # See the docstring: endless responses must not pin pool slots.
+    db_connection.close()
 
     response = StreamingHttpResponse(frames(), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"

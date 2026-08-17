@@ -62,3 +62,33 @@ def test_health_check_is_public(api_client, db):
     response = api_client.get("/api/health")
     assert response.status_code == 200
     assert response.json()["data"]["status"] == "ok"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_make_authed_async_client_authenticates(make_authed_async_client):
+    """The async twin carries a working bearer header through the ASGI path.
+
+    Pins the Django 6.1 gotcha that motivates the fixture: AsyncClient(headers=...)
+    re-prefixes header names (HTTP_HTTP_AUTHORIZATION), silently unauthenticating —
+    scope extras are the reliable spelling. (transaction=True: the async path runs
+    on other threads, which sqlite locks out of pytest's usual atomic wrapper.)"""
+    import asyncio
+
+    user = User.objects.create_user(username="async-pat", password="a-strong-password-123")
+
+    from django.test import AsyncClient
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    client = make_authed_async_client(user)
+    token = RefreshToken.for_user(user).access_token
+    mangled = AsyncClient(headers={"Authorization": f"Bearer {token}"})
+
+    async def scenario():
+        kwargs = {"content_type": "application/json", "data": "{}"}
+        good = await client.post("/api/session/protected", **kwargs)
+        bad = await mangled.post("/api/session/protected", **kwargs)
+        return good.status_code, bad.status_code
+
+    good_status, bad_status = asyncio.run(scenario())
+    assert good_status == 200
+    assert bad_status in (401, 403), "headers= spelling should NOT authenticate (the gotcha)"
