@@ -65,10 +65,13 @@ class Command(BaseCommand):
                 name
                 for name, email in rendered.items()
                 if not (path := output_dir / f"{name}.html").exists()
-                or path.read_text() != email.html
+                or path.read_text(encoding="utf-8") != email.html
             ]
             palette_path = output_dir / PALETTE_FILENAME
-            if not palette_path.exists() or palette_path.read_text() != _palette_json():
+            if (
+                not palette_path.exists()
+                or palette_path.read_text(encoding="utf-8") != _palette_json()
+            ):
                 stale.append(PALETTE_FILENAME)
             if stale:
                 raise CommandError(
@@ -79,8 +82,10 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS("Email previews are up to date."))
             return
 
+        # Explicit UTF-8: without it, Windows writes the locale codepage
+        # (cp1252) and Linux CI's --check crashes decoding the committed files.
         output_dir.mkdir(parents=True, exist_ok=True)
         for name, email in rendered.items():
-            (output_dir / f"{name}.html").write_text(email.html)
-        (output_dir / PALETTE_FILENAME).write_text(_palette_json())
+            (output_dir / f"{name}.html").write_text(email.html, encoding="utf-8")
+        (output_dir / PALETTE_FILENAME).write_text(_palette_json(), encoding="utf-8")
         self.stdout.write(self.style.SUCCESS(f"Wrote {len(rendered)} previews to {output_dir}"))
