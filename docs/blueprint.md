@@ -253,6 +253,74 @@ Rules that matter:
   endpoints that read user content.
 - **Source the secret from the platform's secret store, never the repo.**
 
+### 4b. A third tier: connecting the app to an AI client over MCP
+
+"Connect your data to Claude" (or any MCP client) is not a feature you bolt onto an
+existing API — it is a second front door with its own protocol, its own credential, and
+its own authorization server. `drf_foundation.mcp` is all of that except the tools.
+
+**Host it in Django, not a separate worker.** The tempting shape is a small edge
+translator in front of the API. It does not pay: OAuth needs the user's session and the
+credential-minting code, both of which live in Django regardless, so the translator buys
+you a second deploy and two token systems.
+
+**Hand-roll the transport.** The Python MCP SDK's streamable-HTTP server owns a Starlette
+app with lifespan-managed task groups, and this stack serves ASGI without the lifespan
+protocol (§11a). What a stateless tools-only server needs is five methods over JSON-RPC —
+`initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call` — and the
+wire format is stable across handshake-negotiated revisions. That is
+`drf_foundation.mcp.protocol`, and the supported revisions are declared in exactly one
+place so a spec bump is one dependency bump per consumer.
+
+**The access token IS an API key.** The single highest-leverage decision. Mint the OAuth
+access token as a row in the same credential table a user can already see and revoke in
+settings, and hashing, revocation UI, per-key throttling, scope ceiling and audit
+attribution all apply with no second implementation. The alternative — an OAuth token
+model sitting *beside* the key system — means two things to revoke and one of them
+invisible. `rest_framework.authtoken` is not a substitute: one token per user, no scope,
+no per-client identity, secret in plaintext. Use `AbstractApiKey`.
+
+**Ship the minimal OAuth subset, and make none of it optional.** Authorization-code grant,
+mandatory PKCE (S256 only), public clients via open dynamic registration, no client
+secrets, no refresh tokens in v1. `django-oauth-toolkit` loses on both counts: far
+more surface than this subset, and a token model that sits beside the key system rather
+than being it. Registration can be open precisely because no secret is issued — a client row is
+an announcement, not a capability.
+
+**Leave exactly one seam, and make it the smallest thing that must vary.** A project
+supplies an `OAuthProvider`: what may this user connect, may they connect *this*, and what
+credential does that produce. Everything else is closed. The rule worth stating out loud:
+*a provider chooses who may connect to what, never how the handshake runs* — because PKCE,
+redirect matching, code single-use and token hashing are exactly the things that are
+silently wrong when each app writes them again.
+
+**Tenancy is the project's, and does not need a second code path.** A "resource" is
+whatever a token acts on. A multi-tenant app offers one per tenant the user belongs to and
+the consent page renders a picker; a single-tenant app offers the user themselves and it
+renders none. Same views, same template. If the per-user case ever needs its own branch,
+the seam is wrong.
+
+**Flat endpoint, tenancy from the credential.** `/mcp` takes no tenant in the path — it
+derives one from the key, tools never accept a tenant argument, and entity arguments
+resolve through the tenant-scoped manager only, so a cross-tenant id surfaces as
+not-found. This is worth calling out because it defeats the usual leak test: a URL-walking
+cross-tenant test cannot see inside JSON-RPC. Replace it with a test that walks the *tool
+registry* and fails when a tool has no cross-tenant case, so enrollment is by construction.
+
+**Tools call service functions, not views.** Extract the mutation bodies out of the API
+views into plain functions and have both surfaces call them. Otherwise events,
+notifications and derived-state updates drift between what the web app does and what the
+agent does — and the agent's version is the one nobody is watching.
+
+**Write tool descriptions for a model, not a developer.** They are prompt, not API docs:
+say when to reach for the tool, name the everyday words for its arguments, and say what
+happens automatically. Bound every `str`/`int` field by hand — these argument models are
+not part of the wire-schema pipeline, so §3's bounding check cannot see them.
+
+**Boot check:** the discovery documents embed the issuer and clients follow whatever they
+say, so refuse to boot in production when it is not https
+(`drf_foundation.mcp.checks.issuer_messages`).
+
 ---
 
 ## 5. Settings: one base + a thin test override
