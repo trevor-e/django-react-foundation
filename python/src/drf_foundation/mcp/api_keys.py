@@ -29,6 +29,7 @@ import hashlib
 import secrets
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any
 
 from django.db import models
 from django.http import HttpRequest
@@ -57,6 +58,11 @@ class AbstractApiKey(models.Model):
     tenant *from* the key, so the hash lookup necessarily happens before any
     tenant context exists.
     """
+
+    # Projects declare their own primary key (UUIDv7, bigint, whatever). The bare
+    # annotation is not a field — it stops a type checker synthesizing `id: int`
+    # here and then calling a subclass's UUID pk an inconsistent override.
+    id: Any
 
     key_hash = models.CharField(max_length=64, unique=True)
     # The visible handle (prefix + a few secret chars) shown in settings UIs, so a

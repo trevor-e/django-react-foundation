@@ -92,9 +92,7 @@ def definitions(reg: dict[str, Tool]) -> list[dict[str, Any]]:
 
 def tool_result(payload: dict[str, Any], *, is_error: bool = False) -> dict[str, Any]:
     return {
-        "content": [
-            {"type": "text", "text": json.dumps(payload, indent=2, ensure_ascii=False)}
-        ],
+        "content": [{"type": "text", "text": json.dumps(payload, indent=2, ensure_ascii=False)}],
         "isError": is_error,
     }
 
@@ -127,8 +125,7 @@ def call(
         args = tool.args_model.model_validate(arguments)
     except ValidationError as exc:
         problems = "; ".join(
-            f"{'.'.join(str(p) for p in e['loc']) or 'input'}: {e['msg']}"
-            for e in exc.errors()
+            f"{'.'.join(str(p) for p in e['loc']) or 'input'}: {e['msg']}" for e in exc.errors()
         )
         return tool_error(f"Invalid arguments — {problems}")
     try:

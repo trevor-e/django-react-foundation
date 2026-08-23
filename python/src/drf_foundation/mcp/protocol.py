@@ -21,7 +21,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from drf_foundation.mcp.tools import READ_ONLY_REFUSAL, Tool, call as call_tool, definitions
+from drf_foundation.mcp.tools import READ_ONLY_REFUSAL, Tool, definitions
+from drf_foundation.mcp.tools import call as call_tool
 
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-03-26", "2025-06-18", "2025-11-25")
 LATEST_PROTOCOL_VERSION = "2025-11-25"
@@ -60,9 +61,7 @@ class McpServer:
     can_write: Callable[[Any], bool] | None = None
     write_refused: str = READ_ONLY_REFUSAL
     # Reported in `initialize`; a tools-only server has nothing else to declare.
-    capabilities: dict[str, Any] = field(
-        default_factory=lambda: {"tools": {"listChanged": False}}
-    )
+    capabilities: dict[str, Any] = field(default_factory=lambda: {"tools": {"listChanged": False}})
 
     @property
     def info(self) -> dict[str, str]:
@@ -102,9 +101,7 @@ def handle_post(
     except (json.JSONDecodeError, UnicodeDecodeError):
         return 200, _error(None, PARSE_ERROR, "Body is not valid JSON.")
     if isinstance(message, list):
-        return 200, _error(
-            None, INVALID_REQUEST, "Batched JSON-RPC messages are not supported."
-        )
+        return 200, _error(None, INVALID_REQUEST, "Batched JSON-RPC messages are not supported.")
     if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
         return 200, _error(None, INVALID_REQUEST, "Expected a JSON-RPC 2.0 message.")
 
@@ -123,9 +120,7 @@ def handle_post(
     if method == "initialize":
         requested = params.get("protocolVersion")
         negotiated = (
-            requested
-            if requested in SUPPORTED_PROTOCOL_VERSIONS
-            else LATEST_PROTOCOL_VERSION
+            requested if requested in SUPPORTED_PROTOCOL_VERSIONS else LATEST_PROTOCOL_VERSION
         )
         result = {
             "protocolVersion": negotiated,
