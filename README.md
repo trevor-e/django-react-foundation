@@ -249,7 +249,7 @@ import { prerenderSite } from 'react-vite-foundation/prerender'
 prerenderSite({
   distDir: 'dist',
   siteOrigin: 'https://example.com',
-  routes: PUBLIC_ROUTES, // [{ path, title, description, changefreq?, priority?, jsonLd? }]
+  routes: PUBLIC_ROUTES, // [{ path, title, description, changefreq?, priority?, jsonLd?, image?, imageAlt? }]
   render: renderRoute,
   authGate: true, // hide the prerendered landing pre-paint for logged-in users
 })
@@ -262,6 +262,12 @@ emitted as `landing.html` behind a `_redirects` rewrite; other routes become fla
 trailing-slash 308. Keep the SSR entry's import graph tiny (marketing pages only)
 — rendering your whole app in Node drags every dependency into the SSG pass. No
 browser is required at build time, so this runs on any CI or Pages build image.
+
+A route may declare its own social card via `image` (+ `imageAlt`): the shell's
+site-wide `og:image`/`og:image:alt` are replaced in place — scrapers prefer the
+document's first `og:image`, so appending a second tag would lose — and a
+same-origin `image` must exist as a file in `distDir` or the prerender throws,
+so a route can't ship a preview that 404s.
 
 `authGate` fixes the flash that contract otherwise gives logged-in users on `/`:
 the static marketing HTML paints before the JS bundle runs, then the client-side

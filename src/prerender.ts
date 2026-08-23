@@ -26,6 +26,16 @@ export interface PrerenderRoute {
   changefreq?: 'always' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'never'
   priority?: number
   jsonLd?: object
+  /** Absolute URL of this route's own social-card image. Scrapers prefer the
+   * document's FIRST `og:image`, so when the shell template already carries a
+   * site-wide default, injectPage replaces that tag's content (appending a
+   * second tag would leave the default winning); with no shell tag it appends.
+   * When the URL lives under `siteOrigin`, prerenderSite requires the file to
+   * exist in `distDir` and throws otherwise — a route can never ship a preview
+   * image that 404s. Unset = whatever the shell declares. */
+  image?: string
+  /** `og:image:alt` to pair with `image`; defaults to the route title. */
+  imageAlt?: string
 }
 
 export interface PrerenderOptions {
@@ -83,14 +93,33 @@ export function injectPage(
     .filter(Boolean)
     .join('\n    ')
 
-  return template
+  let page = template
     .replace(/<title>[\s\S]*?<\/title>/, `<title>${escapeHtml(route.title)}</title>`)
     .replace(
       /<meta\s+name="description"[\s\S]*?\/>/,
       `<meta name="description" content="${escapeHtml(route.description)}" />`,
     )
+
+  if (route.image !== undefined) {
+    // Replace the shell's site-wide og:image/og:image:alt in place (see the
+    // PrerenderRoute.image doc: first og:image wins), appending only when the
+    // shell declares none. The property value is matched with its closing
+    // quote, so og:image:width/height/type are untouched.
+    page = replaceOrAppendMeta(page, 'og:image', escapeHtml(route.image))
+    page = replaceOrAppendMeta(page, 'og:image:alt', escapeHtml(route.imageAlt ?? route.title))
+  }
+
+  return page
     .replace('</head>', `    ${headExtras}\n  </head>`)
     .replace('<div id="root"></div>', `<div id="root">${bodyHtml}</div>`)
+}
+
+function replaceOrAppendMeta(page: string, property: string, content: string): string {
+  const tag = `<meta property="${property}" content="${content}" />`
+  const existing = new RegExp(`<meta\\s+property="${property}"[\\s\\S]*?/>`)
+  return existing.test(page)
+    ? page.replace(existing, tag)
+    : page.replace('</head>', `    ${tag}\n  </head>`)
 }
 
 export function sitemapXml(routes: PrerenderRoute[], siteOrigin: string): string {
@@ -154,6 +183,17 @@ export function prerenderSite(options: PrerenderOptions): string[] {
   for (const route of routes) {
     const outFile = routeOutputFile(route.path, rootStrategy)
     if (outFile === null) continue
+    if (route.image !== undefined && route.image.startsWith(`${siteOrigin}/`)) {
+      // A same-origin card must be in this build — fail instead of shipping a
+      // preview URL that will 404 (cross-origin images can't be checked here).
+      const imageFile = path.join(distDir, new URL(route.image).pathname)
+      if (!fs.existsSync(imageFile)) {
+        throw new Error(
+          `prerender: ${route.path} declares image ${route.image} but ` +
+            `${path.relative(distDir, imageFile)} is missing from ${distDir}`,
+        )
+      }
+    }
     let page = injectPage(template, route, render(route.path), siteOrigin)
     if (route.path === '/' && authGate) {
       page = page.replace('</head>', `${authGateHeadSnippet(gateKey)}</head>`)
