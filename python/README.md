@@ -258,6 +258,48 @@ return sse_response(REDIS_URL, f"war:{war.id}",
                     on_close=tracker.disconnect)
 ```
 
+## Activity / audit logs
+
+`drf_foundation.event_log` gives you the table shape (ordered, append-only, per-scope
+facts). `drf_foundation.activity` gives you the two things every project otherwise
+re-derives when using one as an **activity or audit trail**:
+
+```python
+# models.py — the table is yours (the package ships no migrations)
+class AccountEvent(EventLogEntry):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name="events")
+
+    class Meta(EventLogEntry.Meta):
+        constraints = [models.UniqueConstraint(fields=["user", "seq"],
+                                               name="uniq_account_event_seq")]
+
+# activity.py — configured once
+ACTIVITY = ActivityLog(AccountEvent, scope_field="user")
+
+ACTIVITY.record(user, "mcp.connected", {"client": "Claude", "scope": "read"})
+ACTIVITY.entries(user, after=cursor)     # one ordered page; empty == caught up
+ACTIVITY.head(user)                      # latest seq, 0 when empty
+```
+
+**Why not just call `append_events` directly.** It computes the next sequence as
+`MAX(seq) + 1` and deliberately does not lock — the caller owns scope-level mutual
+exclusion, with the unique constraint as the backstop. Forgetting that is invisible
+until two things happen at once in production, at which point it is an `IntegrityError`
+on a write path that had nothing to do with logging. `record()` takes the
+`select_for_update` on the scope row so the discipline lives in one place.
+
+**Know the trade before the vocabulary grows.** Contiguous sequences are what make the
+log cursor-readable, and they are also what forces the lock — so every append takes a
+row lock on the scope. At human-scale events (a connection, a password change, a
+setting toggled) that is invisible. At high-frequency writes it is not: every audited
+write serializes on that row. A trail that never needs cursor reads is cheaper on a
+plain autoincrement; this module is for the case where you want the ordered, resumable
+read too.
+
+Payloads should describe what happened in terms a person can act on, and must not
+reproduce credential secrets — reference a credential by its masked prefix.
+
 ## MCP: connect the app to an AI client
 
 `drf_foundation.mcp` is a remote [MCP](https://modelcontextprotocol.io) server —
