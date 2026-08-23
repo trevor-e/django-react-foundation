@@ -735,3 +735,64 @@ def test_the_error_page_names_the_projects_product_not_the_packages(authed, acco
     assert "adulting" not in body.lower()
     # resource_name comes from the project's own OAuthConfig.
     assert "Example" in body
+
+
+# --- packaged template CSS ----------------------------------------------------
+
+
+@pytest.mark.parametrize("template", ["consent.html", "oauth_error.html"])
+def test_dark_overrides_are_last_in_the_stylesheet(template):
+    """Dark-mode rules must come last, because the cascade — not the media query —
+    decides between same-specificity rules.
+
+    This shipped broken: the dark block sat above `.card`, so the light
+    `background: #fff` declared afterwards won and dark mode rendered light text
+    on a white card. The error page hid the same bug behind `!important`.
+    """
+    from pathlib import Path
+
+    import drf_foundation
+
+    path = Path(drf_foundation.__file__).parent / "templates" / "drf_foundation" / "mcp" / template
+    css = path.read_text().split("<style>")[1].split("</style>")[0]
+
+    marker = "@media (prefers-color-scheme: dark)"
+    assert marker in css, f"{template} has no dark-mode block"
+
+    # Walk braces from the marker to find where the media block actually ends.
+    # (An earlier version of this test used rindex("}"), which finds the LAST brace
+    # in the whole sheet — so the tail was always empty and the test passed on the
+    # very templates it was written to catch.)
+    start = css.index(marker)
+    depth = 0
+    end = None
+    for i in range(css.index("{", start), len(css)):
+        if css[i] == "{":
+            depth += 1
+        elif css[i] == "}":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    assert end is not None, f"{template}: unbalanced braces in the dark-mode block"
+
+    tail = css[end:]
+    assert not tail.strip(), (
+        f"{template}: CSS rules follow the dark-mode block and will override it "
+        f"— move the block to the end of the stylesheet. Trailing: {tail.strip()[:80]}"
+    )
+
+
+@pytest.mark.parametrize("template", ["consent.html", "oauth_error.html"])
+def test_packaged_css_needs_no_important(template):
+    """`!important` here was a workaround for the ordering bug above. With the
+    cascade right it is unnecessary, and its return would signal the regression."""
+    from pathlib import Path
+
+    import drf_foundation
+
+    path = Path(drf_foundation.__file__).parent / "templates" / "drf_foundation" / "mcp" / template
+    assert "!important" not in path.read_text(), (
+        f"{template} uses !important — usually a sign a cascade-order problem was "
+        "patched over rather than fixed"
+    )
