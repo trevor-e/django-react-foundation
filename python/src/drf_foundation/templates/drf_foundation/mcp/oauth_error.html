@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>{{ title }} — adulting.app</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+           font: 16px/1.5 Inter, system-ui, -apple-system, sans-serif;
+           background: #f6f7f9; color: #16191f; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #101216; color: #e8eaee; }
+      .card { background: #191c22 !important; border-color: #2a2f38 !important; }
+    }
+    .card { width: min(26rem, calc(100vw - 2rem)); background: #fff;
+            border: 1px solid #e2e5ea; border-radius: 12px; padding: 1.75rem; }
+    h1 { font-size: 1.15rem; margin: 0 0 .5rem; }
+    p { margin: 0; color: #667085; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>{{ title }}</h1>
+    <p>{{ message }}</p>
+  </main>
+</body>
+</html>

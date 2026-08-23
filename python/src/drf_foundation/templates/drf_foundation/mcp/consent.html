@@ -1,0 +1,82 @@
+{% comment %}
+The default consent page. Override it by pointing OAuthConfig.consent_template at
+your own; the context is documented in drf_foundation.mcp.oauth (client_name,
+redirect_host, loopback_only, resources, single_resource, scopes, default_scope,
+payload). Deliberately styleless-but-legible and dependency-free: it is served
+from the API origin, where a project's frontend assets do not exist.
+{% endcomment %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Connect &ldquo;{{ client_name }}&rdquo;</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+           font: 16px/1.5 system-ui, -apple-system, sans-serif;
+           background: #f6f7f9; color: #16191f; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #101216; color: #e8eaee; }
+      .card { background: #191c22; border-color: #2a2f38; }
+      .meta { background: #12141a; }
+    }
+    .card { width: min(26rem, calc(100vw - 2rem)); background: #fff;
+            border: 1px solid #e2e5ea; border-radius: 12px; padding: 1.75rem; }
+    h1 { font-size: 1.2rem; margin: 0 0 .25rem; }
+    .sub { margin: 0 0 1rem; color: #667085; }
+    .meta { font-size: .85rem; color: #667085; background: #f2f4f7;
+            border-radius: 8px; padding: .6rem .8rem; margin-bottom: 1.25rem; }
+    label { display: block; font-weight: 600; margin: 1rem 0 .35rem; font-size: .9rem; }
+    select { width: 100%; padding: .5rem; border-radius: 8px; border: 1px solid #cdd2da;
+             font: inherit; background: inherit; color: inherit; }
+    .choice { display: flex; gap: .5rem; align-items: baseline; margin: .3rem 0; font-weight: 400; }
+    .actions { display: flex; gap: .75rem; margin-top: 1.5rem; }
+    button { flex: 1; padding: .6rem 1rem; border-radius: 8px; font: inherit;
+             font-weight: 600; cursor: pointer; border: 1px solid #cdd2da;
+             background: transparent; color: inherit; }
+    button.primary { background: #2761E0; border-color: #2761E0; color: #fff; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Connect &ldquo;{{ client_name }}&rdquo;</h1>
+    <p class="sub">wants access to your account.</p>
+    <p class="meta">
+      The app named itself &ldquo;{{ client_name }}&rdquo; (names are self-reported, not
+      verified). After you approve, you'll be sent back to
+      <strong>{{ redirect_host }}</strong>{% if loopback_only %} — an app running on your
+      own computer{% endif %}.
+    </p>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="payload" value="{{ payload }}">
+      {% if single_resource %}
+        {% for resource in resources %}
+          <input type="hidden" name="resource" value="{{ resource.id }}">
+        {% endfor %}
+      {% else %}
+        <label for="resource">Connect</label>
+        <select id="resource" name="resource">
+          {% for resource in resources %}
+            <option value="{{ resource.id }}">{{ resource.label }}</option>
+          {% endfor %}
+        </select>
+      {% endif %}
+      <label>Access</label>
+      {% for scope in scopes %}
+        <div class="choice">
+          <input type="radio" id="scope-{{ scope.value }}" name="scope" value="{{ scope.value }}"
+                 {% if default_scope == scope.value %}checked{% endif %}>
+          <span><label for="scope-{{ scope.value }}" style="display:inline;margin:0">{{ scope.label }}</label>{% if scope.description %}
+          — {{ scope.description }}{% endif %}</span>
+        </div>
+      {% endfor %}
+      <div class="actions">
+        <button type="submit" name="action" value="deny">Cancel</button>
+        <button type="submit" name="action" value="approve" class="primary">Approve</button>
+      </div>
+    </form>
+  </main>
+</body>
+</html>
