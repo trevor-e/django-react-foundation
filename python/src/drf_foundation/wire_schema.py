@@ -97,14 +97,20 @@ def _strip_titles(node: Any) -> Any:
 
 
 def _require_defaulted_fields(node: Any) -> Any:
-    """Mark default-valued properties as required, recursively.
+    """Mark defaulted **literal discriminants** as required, recursively.
 
-    Pydantic's serialization schema leaves fields with defaults out of ``required`` —
-    but this foundation's response path (``ok()`` → ``model_dump(mode="json")``)
-    always emits them, defaults included. Without this, every literal discriminant
-    (``type: Literal["unit_moved"] = "unit_moved"``) and defaulted field generates as
-    *optional* TS, and downstream code can't index on discriminants without
-    non-null ceremony. Marking them required is the faithful wire contract.
+    Pydantic's serialization schema leaves fields with defaults out of ``required``.
+    For a literal discriminant (``type: Literal["unit_moved"] = "unit_moved"``) that
+    is unhelpful: the response path (``ok()`` → ``model_dump(mode="json")``) always
+    emits it, so generating it as optional TS forces non-null ceremony everywhere
+    downstream code wants to switch on it.
+
+    Scoped to single-valued literals (JSON Schema ``const``) on purpose. The obvious
+    generalization — "every defaulted field is always emitted, so require them all" —
+    is true of responses and false of requests: ``name: str | None = None`` on a
+    PATCH body is genuinely optional for the *client* to send, and requiring it makes
+    every partial update a type error. One transformation serves both directions only
+    if it stays this narrow.
     """
     if isinstance(node, dict):
         # Same name-map-aware traversal as _strip_titles: recurse into the *values* of
@@ -125,7 +131,7 @@ def _require_defaulted_fields(node: Any) -> Any:
             defaulted = {
                 name
                 for name, prop in properties.items()
-                if isinstance(prop, dict) and "default" in prop
+                if isinstance(prop, dict) and "default" in prop and "const" in prop
             }
             if defaulted - required:
                 result["required"] = sorted(required | defaulted)

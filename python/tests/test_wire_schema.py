@@ -33,16 +33,30 @@ def test_dump_json_schema_is_deterministic():
     assert first.endswith("\n")
 
 
-def test_defaulted_fields_are_required_in_serialization():
-    """The response path always emits defaults (`ok()` dumps without exclude_*), so
-    the wire contract marks them required — literal discriminants especially, which
-    would otherwise generate as optional TS and break discriminated narrowing."""
+def test_defaulted_literal_discriminants_are_required_in_serialization():
+    """The response path always emits a discriminant (`ok()` dumps without exclude_*),
+    so the wire contract marks it required — otherwise it generates as optional TS and
+    breaks discriminated narrowing."""
     from drf_foundation.wire_schema import build_json_schema
 
     schema = build_json_schema()
     widget = schema["$defs"]["WidgetKind"]
     assert "kind" in widget["required"]
     assert widget["properties"]["kind"]["default"] == "widget"
+
+
+def test_an_ordinary_defaulted_field_stays_optional():
+    """The rule stops at literal discriminants, and that boundary is load-bearing.
+
+    Requiring *every* defaulted field is true of responses and false of requests: a
+    `label: str | None = None` on a PATCH body is genuinely optional for the client to
+    send, and requiring it makes every partial update a type error at the call site.
+    """
+    from drf_foundation.wire_schema import build_json_schema
+
+    widget = build_json_schema()["$defs"]["WidgetKind"]
+    assert "label" not in widget["required"]
+    assert widget["properties"]["label"]["default"] is None
 
 
 def test_require_defaulted_fields_never_treats_a_properties_map_as_a_schema():
