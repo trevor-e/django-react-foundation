@@ -1,7 +1,7 @@
 import logging
-import threading
 
 import pytest
+from asgiref.sync import async_to_sync
 
 from drf_foundation import realtime
 
@@ -72,52 +72,89 @@ def test_sse_response_releases_the_db_connection(db, monkeypatch):
     response.close()
 
 
-def test_sse_response_from_an_async_view_does_not_500(monkeypatch, db, client):
+def test_sse_response_from_an_async_view_does_not_500(monkeypatch, db, async_client):
     # The regression: releasing the connection inline raised SynchronousOnlyOperation
     # on the event loop, so an async streaming view 500'd outright. Driven through a
     # real async view, since that is the only shape SSE takes under ASGI.
     _patch_aioredis(monkeypatch, [b"1"])
 
-    response = client.get("/api/stream")
+    response = async_to_sync(async_client.get)("/api/stream")
 
     assert response.status_code == 200
     assert response["Content-Type"] == "text/event-stream"
-    response.close()
+    async_to_sync(_drain)(response, 1)
 
 
-def test_sse_response_releases_the_db_connection_from_an_async_view(monkeypatch, db):
-    # connection.close() is @async_unsafe, so an async caller cannot release the
-    # connection inline — it is deferred to the generator's first step and routed
-    # back to the thread that owns the connection.
+def test_sse_response_refuses_a_running_loop(db):
+    # sse_response closes inline, which is only safe off the loop. An async caller
+    # that reaches for it gets told which function it wanted, rather than a stream
+    # that dies on its first frame.
+    async def call_it():
+        return realtime.sse_response("redis://x", "events:h1")
+
+    with pytest.raises(RuntimeError, match="asse_response"):
+        async_to_sync(call_it)()
+
+
+def test_async_stream_survives_consumption_outside_the_request_context(
+    monkeypatch, db, async_client
+):
+    # The bug this guards: the connection release used to be deferred into the
+    # generator's first step. That step does NOT run inside the request's
+    # ThreadSensitiveContext -- ASGIHandler.send_response iterates the streaming
+    # content after that context has exited -- so the deferred close landed on a
+    # thread that did not own the connection, Django's thread-sharing guard fired,
+    # and the stream died before its opening frame with the slot still checked out.
     #
-    # Build and consume inside ONE async context, the way a real ASGI request does:
-    # the thread-sensitive routing is what puts the close on the owning thread, and
-    # splitting the two across contexts (a sync test client, then a drain) breaks
-    # that routing in the harness only.
-    from asgiref.sync import async_to_sync
-    from django.db import connection
-
-    closed_on: list[int] = []
-    monkeypatch.setattr(
-        type(connection),
-        "close",
-        lambda self: closed_on.append(threading.get_ident()),
-        raising=False,
-    )
+    # Two things let this test see that, and the previous one could see neither:
+    # connection.close is NOT monkeypatched (the guard that fires lives inside the
+    # real close), and the response is built and consumed in separate async
+    # contexts, the way a real ASGI request does.
     _patch_aioredis(monkeypatch, [b"1"])
 
-    async def build_and_consume():
-        response = realtime.sse_response("redis://x", "events:h1")
-        assert not closed_on, "the close must not run inline on the event loop"
-        return await _consume(response, 1)
+    response = async_to_sync(async_client.get)("/api/stream")
 
-    owner_thread = connection._thread_ident
-    chunks = async_to_sync(build_and_consume)()
+    chunks = async_to_sync(_drain)(response, 1)
 
     assert chunks == ["event: connected\ndata: ok\n\n"]
-    assert closed_on == [owner_thread], (
-        "the deferred close must run on the thread that owns the connection — "
-        "closing from any other thread trips Django's thread-sharing guard"
+
+
+def test_async_stream_releases_the_db_connection(monkeypatch, db, async_client):
+    # The release must still happen -- an endless stream that holds its pool slot
+    # starves everything else (see sse_response's docstring). Driven through a view
+    # that touches the ORM first, because that is what checks a connection out.
+    #
+    # A spy, for the same reason as the sync test above: the real effect is
+    # invisible on test backends (in-memory sqlite refuses to close at all). What
+    # is asserted instead is the part that was actually broken -- *which* wrapper
+    # gets released. The bug released a fresh wrapper resolved on the wrong thread
+    # while the request's own connection stayed checked out.
+    import threading
+
+    from django.db import DEFAULT_DB_ALIAS, connections
+
+    from tests.urls import STREAM_DB_CONNECTIONS
+
+    released: list[tuple[int, int]] = []
+    real = realtime._close_open_connections
+
+    def spy():
+        released.append((threading.get_ident(), id(connections[DEFAULT_DB_ALIAS])))
+        real()
+
+    monkeypatch.setattr(realtime, "_close_open_connections", spy)
+    _patch_aioredis(monkeypatch, [b"1"])
+    STREAM_DB_CONNECTIONS.clear()
+
+    response = async_to_sync(async_client.get)("/api/stream-after-db")
+    async_to_sync(_drain)(response, 1)
+
+    assert released, "the stream must hand the request's DB connection back"
+    assert STREAM_DB_CONNECTIONS, "the view under test never opened a connection"
+    _, released_wrapper = released[0]
+    assert released_wrapper == id(STREAM_DB_CONNECTIONS[0]), (
+        "the release must target the wrapper the request's ORM work used, not one "
+        "resolved fresh on whichever thread the release happened to land on"
     )
 
 
@@ -162,6 +199,16 @@ def _patch_aioredis(monkeypatch, messages):
     monkeypatch.setattr(
         aioredis.Redis, "from_url", classmethod(lambda cls, url: _FakeAsyncRedis(messages))
     )
+
+
+async def _drain(response, n):
+    """Consume the stream in its own async context.
+
+    Deliberately not the context that built the response: ASGIHandler builds inside
+    ThreadSensitiveContext and iterates the body after it exits, and that split is
+    exactly what the deferred-close bug needed in order to show up.
+    """
+    return await _consume(response, n)
 
 
 async def _consume(response, n):

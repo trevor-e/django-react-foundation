@@ -19,7 +19,27 @@ def protected_mutation(request: Request) -> Response:
 async def sse_stream(request: HttpRequest) -> StreamingHttpResponse:
     """An *async* view returning a stream — the only shape SSE takes under ASGI,
     and the one where releasing the DB connection is @async_unsafe."""
-    return realtime.sse_response("redis://x", "events:test")
+    return await realtime.asse_response("redis://x", "events:test")
+
+
+# Records the concrete DatabaseWrapper the request's ORM work ran on, so a test can
+# assert that *that* connection — not the test thread's — was handed back.
+STREAM_DB_CONNECTIONS: list = []
+
+
+async def sse_stream_after_db(request: HttpRequest) -> StreamingHttpResponse:
+    """A stream from a view that touched the ORM first — the real shape, where the
+    auth/tenancy lookup has already checked a connection out of the pool."""
+    from asgiref.sync import sync_to_async
+    from django.contrib.auth import get_user_model
+    from django.db import DEFAULT_DB_ALIAS, connections
+
+    def _work():
+        get_user_model().objects.count()
+        STREAM_DB_CONNECTIONS.append(connections[DEFAULT_DB_ALIAS])
+
+    await sync_to_async(_work, thread_sensitive=True)()
+    return await realtime.asse_response("redis://x", "events:test")
 
 
 urlpatterns = [
@@ -34,6 +54,7 @@ urlpatterns = [
     path("api/session/logout", session_auth.logout, name="session-logout"),
     path("api/session/protected", protected_mutation, name="session-protected"),
     path("api/stream", sse_stream, name="sse-stream"),
+    path("api/stream-after-db", sse_stream_after_db, name="sse-stream-after-db"),
 ]
 
 # The multi-tenant MCP OAuth surface at the root (the realistic layout), and the
