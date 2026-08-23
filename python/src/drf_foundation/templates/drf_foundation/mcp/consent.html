@@ -19,14 +19,16 @@ from the API origin, where a project's frontend assets do not exist.
     @media (prefers-color-scheme: dark) {
       body { background: #101216; color: #e8eaee; }
       .card { background: #191c22; border-color: #2a2f38; }
-      .meta { background: #12141a; }
+      .meta, .account { background: #12141a; }
     }
     .card { width: min(26rem, calc(100vw - 2rem)); background: #fff;
             border: 1px solid #e2e5ea; border-radius: 12px; padding: 1.75rem; }
     h1 { font-size: 1.2rem; margin: 0 0 .25rem; }
     .sub { margin: 0 0 1rem; color: #667085; }
     .meta { font-size: .85rem; color: #667085; background: #f2f4f7;
-            border-radius: 8px; padding: .6rem .8rem; margin-bottom: 1.25rem; }
+            border-radius: 8px; padding: .6rem .8rem; margin-bottom: 1rem; }
+    .account { font-size: .9rem; background: #f2f4f7; border-radius: 8px;
+               padding: .6rem .8rem; margin: 0 0 1.25rem; }
     label { display: block; font-weight: 600; margin: 1rem 0 .35rem; font-size: .9rem; }
     select { width: 100%; padding: .5rem; border-radius: 8px; border: 1px solid #cdd2da;
              font: inherit; background: inherit; color: inherit; }
@@ -41,7 +43,7 @@ from the API origin, where a project's frontend assets do not exist.
 <body>
   <main class="card">
     <h1>Connect &ldquo;{{ client_name }}&rdquo;</h1>
-    <p class="sub">wants access to your account.</p>
+    <p class="sub">wants access to your{% if resource_name %} {{ resource_name }}{% endif %} account.</p>
     <p class="meta">
       The app named itself &ldquo;{{ client_name }}&rdquo; (names are self-reported, not
       verified). After you approve, you'll be sent back to
@@ -52,8 +54,14 @@ from the API origin, where a project's frontend assets do not exist.
       {% csrf_token %}
       <input type="hidden" name="payload" value="{{ payload }}">
       {% if single_resource %}
+        {% comment %}
+        One resource still names it. Hiding it entirely (the obvious shortcut) leaves
+        someone signed into two accounts unable to tell which one they are granting —
+        and the account is the whole subject of the page.
+        {% endcomment %}
         {% for resource in resources %}
           <input type="hidden" name="resource" value="{{ resource.id }}">
+          <p class="account">Signed in as <strong>{{ resource.label }}</strong></p>
         {% endfor %}
       {% else %}
         <label for="resource">Connect</label>

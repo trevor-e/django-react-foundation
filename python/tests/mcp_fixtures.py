@@ -9,16 +9,22 @@ the second ever needs its own code path in the package, something has gone wrong
 from typing import Any
 
 from django.utils import timezone
+from pydantic import Field
 
 from drf_foundation.mcp import (
     McpOAuth,
+    McpServer,
     MintRefused,
     OAuthConfig,
     OAuthModels,
     Resource,
     Scope,
     TokenCodec,
+    Tool,
+    ToolArgs,
     login_redirect,
+    mcp_endpoint,
+    registry,
 )
 from tests.testapp.models import (
     Account,
@@ -149,4 +155,73 @@ SINGLE_OAUTH = McpOAuth(
         resource_field="owner",
     ),
     config=_config(),
+)
+
+
+# --- a server and a mounted endpoint -----------------------------------------
+#
+# The transport used to be the project's to write, and every project wrote the same
+# sixty lines. `mcp_endpoint` owns it now, so the suite mounts one and drives it.
+
+
+class WhoamiArgs(ToolArgs):
+    pass
+
+
+class ShoutArgs(ToolArgs):
+    text: str = Field(max_length=50)
+
+
+def _whoami(context, args: WhoamiArgs) -> dict:
+    return {"account": context["account"], "scope": context["scope"]}
+
+
+def _shout(context, args: ShoutArgs) -> dict:
+    return {"said": args.text.upper()}
+
+
+TEST_REGISTRY = registry(
+    Tool(
+        name="whoami",
+        description="Report the connected account.",
+        args_model=WhoamiArgs,
+        handler=_whoami,
+    ),
+    Tool(
+        name="shout",
+        description="Uppercase some text.",
+        args_model=ShoutArgs,
+        handler=_shout,
+        writes=True,
+    ),
+)
+
+TEST_SERVER = McpServer(
+    name="fixture",
+    version="1.0.0",
+    registry=TEST_REGISTRY,
+    instructions=lambda context: f"Connected as {context['account']}.",
+    can_write=lambda context: context["scope"] == "read_write",
+)
+
+
+def _context(key: ApiKey) -> dict:
+    return {"account": key.account.name, "scope": key.scope, "key": key}
+
+
+def _refuse(key: ApiKey) -> str | None:
+    """The project's own extra check — here, a disabled account."""
+    return "This account is disabled." if key.account.name.startswith("disabled") else None
+
+
+TEST_ENDPOINT = mcp_endpoint(
+    server=TEST_SERVER,
+    key_model=ApiKey,
+    codec=CODEC,
+    context=_context,
+    issuer=lambda: "https://api.example.test",
+    realm="Example",
+    select_related=("account",),
+    refuse=_refuse,
+    throttle_scope="mcp-key",
 )

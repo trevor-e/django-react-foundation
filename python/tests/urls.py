@@ -39,10 +39,17 @@ urlpatterns = [
 # The multi-tenant MCP OAuth surface at the root (the realistic layout), and the
 # single-tenant one under a prefix so both shapes are reachable in one test app.
 # Route *names* collide by design — the tests address these by literal path.
-from tests.mcp_fixtures import MULTI_OAUTH, SINGLE_OAUTH  # noqa: E402
+from tests.mcp_fixtures import (  # noqa: E402
+    MULTI_OAUTH,
+    SINGLE_OAUTH,
+    TEST_ENDPOINT,
+)
 
 urlpatterns += MULTI_OAUTH.urlpatterns()
 urlpatterns += [
     path(f"single/{p.pattern}", p.callback, name=f"single-{p.name}")
     for p in SINGLE_OAUTH.urlpatterns()
 ]
+
+# The endpoint factory, mounted the way a project would.
+urlpatterns += [path("mcp", TEST_ENDPOINT, name="mcp-endpoint")]

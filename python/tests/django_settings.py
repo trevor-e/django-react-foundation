@@ -71,6 +71,9 @@ REST_FRAMEWORK = {
         "auth-register": "10/hour",
         "auth-csrf": "60/min",
         "token-user": "120/min",
+        # The MCP endpoint's per-key bucket. High enough not to interfere; the
+        # throttling test patches the class attribute to something small.
+        "mcp-key": "1000/min",
     },
 }
 

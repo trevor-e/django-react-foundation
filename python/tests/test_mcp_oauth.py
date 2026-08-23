@@ -273,6 +273,20 @@ def test_a_single_resource_renders_no_picker_in_either_shape(authed, account, us
     assert f'name="resource" value="{resource_id(shape, user, account)}"' in html
 
 
+@pytest.mark.parametrize("shape", list(SHAPES))
+def test_a_single_resource_is_still_named_on_the_page(authed, account, user, shape):
+    """No picker is not the same as no mention: someone signed into two accounts
+    has to be able to tell which one they are about to grant."""
+    prefix, _, _, _ = SHAPES[shape]
+    registered = register(authed, prefix=prefix)
+
+    html = start(authed, registered["client_id"], prefix=prefix).content.decode()
+
+    assert "Signed in as" in html
+    label = account.name if shape == "multi" else (user.email or str(user.pk))
+    assert label in html
+
+
 def test_an_anonymous_visitor_is_sent_to_log_in(client, db):
     registered = register(client)
     response = start(client, registered["client_id"])

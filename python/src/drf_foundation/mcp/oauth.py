@@ -599,6 +599,7 @@ class McpOAuth:
             "single_resource": len(resources) == 1,
             "scopes": list(self.provider.scopes),
             "default_scope": self.default_scope(params.get("scope", "")),
+            "resource_name": self.config.resource_name,
             "payload": signing.dumps(
                 {
                     "c": client.client_id,

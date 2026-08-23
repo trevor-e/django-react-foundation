@@ -258,6 +258,141 @@ return sse_response(REDIS_URL, f"war:{war.id}",
                     on_close=tracker.disconnect)
 ```
 
+## MCP: connect the app to an AI client
+
+`drf_foundation.mcp` is a remote [MCP](https://modelcontextprotocol.io) server —
+streamable-HTTP transport, a tool registry, an API-key credential store, and the OAuth
+2.1 subset claude.ai's custom-connector UI needs (it takes a URL and offers no header
+field, so "connect my app to Claude" is an OAuth problem whether you wanted one or not).
+
+**Only the tools are yours to write.** Everything else is protocol.
+
+### The five pieces
+
+**1. Concrete models.** The package ships no migrations, so subclass the four abstract
+bases and own the migration. The credential subclasses `AbstractApiKey` — the OAuth
+access token *is* an API key row, so hashing, revocation UI, and per-key throttling all
+apply once instead of twice.
+
+```python
+class McpApiKey(AbstractApiKey):            # hashed at rest; you add identity
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    name = models.CharField(max_length=100)        # the connecting client's name
+    scope = models.CharField(max_length=16, choices=Scope.choices)
+
+class OAuthClient(AbstractOAuthClient): ...
+
+class AuthorizationCode(AbstractAuthorizationCode):
+    client = models.ForeignKey(OAuthClient, on_delete=models.CASCADE, related_name="codes")
+    owner = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="+")
+    issued_key = models.ForeignKey(McpApiKey, on_delete=models.SET_NULL, null=True, related_name="+")
+
+class Grant(AbstractGrant):
+    client = models.ForeignKey(OAuthClient, on_delete=models.CASCADE, related_name="grants")
+    owner = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="+")
+    api_key = models.OneToOneField(McpApiKey, on_delete=models.CASCADE, related_name="grant")
+```
+
+> **Do not call the resource FK `user`.** `AbstractAuthorizationCode` already declares
+> `user` for the person who completed consent. In a per-user app they are the same human
+> and still not the same field — use `owner` and pass
+> `OAuthModels(resource_field="owner")`. `McpOAuth` rejects a colliding name when you
+> construct it rather than the first time somebody clicks Approve.
+
+**2. Tools.** A name, a sentence aimed at a model, a bounded `ToolArgs`, a handler.
+Descriptions are *prompt*, not API docs: say when to reach for the tool and what its
+arguments mean in everyday words. These models are outside the wire-schema pipeline, so
+bound every `str` (`max_length`) and `int` (`le`) by hand.
+
+```python
+REGISTRY = registry(
+    Tool(name="find_widget", description="Look up a widget by name…",
+         args_model=FindArgs, handler=find_widget),
+    Tool(name="add_widget", description="Add a widget…",
+         args_model=AddArgs, handler=add_widget, writes=True),
+)
+SERVER = McpServer(
+    name="myapp", version="1.0.0", registry=REGISTRY,
+    instructions=lambda ctx: f"Connected as {ctx.account}. …",
+    can_write=lambda ctx: ctx.scope == "read_write",
+)
+```
+
+**3. A provider** — the one seam. It answers *what may this user connect*, *may they
+connect this*, and *what credential does that produce*. Nothing about PKCE, redirect
+matching, code single-use, or token hashing is overridable, because those are exactly
+what goes silently wrong when each app writes them again.
+
+```python
+class Provider:
+    scopes = (Scope("read", "Read-only", "see everything, change nothing"),
+              Scope("read_write", "Read & write", "see and change things"))
+
+    def resources(self, user): ...        # what this user may connect (one → no picker)
+    def resolve(self, user, resource_id): ...   # None denies — the authorization check
+    def mint(self, *, user, resource, scope, client): ...   # -> (secret, key_row)
+    def replace_previous(self, *, user, resource, client): ...  # revoke, don't stack
+    def revoke(self, key, *, reason): ...
+```
+
+**4. Wire it up.** `login_redirect`'s `path` must be the sign-in route your SPA actually
+serves — a wrong one does not error, it renders nothing and the connection dies on a
+blank page.
+
+```python
+OAUTH = McpOAuth(
+    provider=Provider(),
+    models=OAuthModels(client=OAuthClient, code=AuthorizationCode,
+                       grant=Grant, resource_field="owner"),
+    config=OAuthConfig(
+        issuer=lambda: settings.PUBLIC_API_ORIGIN,   # https in production
+        resource_name="MyApp",
+        codec=TokenCodec(prefix="myapp_mcp_"),
+        login_url=login_redirect(settings.FRONTEND_URL, path="/auth"),
+        register_throttle=SomeIpThrottle, token_throttle=SomeIpThrottle,
+    ),
+)
+
+ENDPOINT = mcp_endpoint(
+    server=SERVER, key_model=McpApiKey, codec=OAUTH.config.codec,
+    context=lambda key: Context(user=key.user, scope=key.scope),
+    issuer=lambda: settings.PUBLIC_API_ORIGIN,
+    realm="MyApp", select_related=("user",),
+    refuse=lambda key: None if key.user.is_active else "This account is not active.",
+    throttle_scope="mcp-key",      # needs a DEFAULT_THROTTLE_RATES entry
+)
+
+# urls.py — root-mounted; the well-known paths are fixed by spec.
+urlpatterns += OAUTH.urlpatterns(mcp_view=ENDPOINT, mcp_route="mcp")
+```
+
+**5. A production check.** The discovery documents embed the issuer and clients follow
+whatever they say, so refuse to boot on a non-https one:
+
+```python
+issuer_messages(settings.PUBLIC_API_ORIGIN, check_id="myapp.E010")
+```
+
+### The frontend's half
+
+`login_url` sends a signed-out user to your SPA with the authorize URL in `?next=`. The
+SPA must honor it **only** for URLs on its own API origin — the return is cross-origin
+by nature, so following whatever arrives is an open redirect.
+
+### Rules worth keeping
+
+- **Tenancy comes from the credential.** `/mcp` takes no tenant in its path, no tool
+  accepts an owner argument, and entity arguments resolve through the scoped manager
+  only — so a cross-tenant id surfaces as not-found. This defeats the usual leak test: a
+  URL-walking check cannot see inside JSON-RPC. Replace it with one that walks the *tool
+  registry* and fails when a tool has no cross-tenant case, so new tools enroll by
+  construction.
+- **Tools call service functions, not views.** Otherwise validation and derived state
+  drift between what the app does and what the agent does, and the agent's version is
+  the one nobody is watching.
+- **Templates.** `consent.html` and `oauth_error.html` are overridable via
+  `OAuthConfig`; both render `resource_name`, so the defaults are usable unbranded.
+
 ## Testing
 
 ```bash

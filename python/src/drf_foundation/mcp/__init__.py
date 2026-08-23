@@ -54,6 +54,7 @@ from drf_foundation.mcp.protocol import (
     handle_post,
 )
 from drf_foundation.mcp.tools import Tool, ToolArgs, ToolError, registry
+from drf_foundation.mcp.views import KeyRateThrottle, mcp_endpoint
 
 __all__ = [
     "LATEST_PROTOCOL_VERSION",
@@ -62,6 +63,7 @@ __all__ = [
     "AbstractAuthorizationCode",
     "AbstractGrant",
     "AbstractOAuthClient",
+    "KeyRateThrottle",
     "McpOAuth",
     "McpServer",
     "MintRefused",
@@ -77,6 +79,7 @@ __all__ = [
     "bearer_token",
     "handle_post",
     "login_redirect",
+    "mcp_endpoint",
     "permissive_cors",
     "redirect_uri_allowed",
     "registry",
