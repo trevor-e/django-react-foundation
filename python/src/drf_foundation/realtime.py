@@ -12,10 +12,12 @@ The SSE response must be served under ASGI (blueprint §11a) — the generator i
 and would pin a whole thread per client on WSGI.
 """
 
+import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 
+from asgiref.sync import sync_to_async
 from django.db import connection as db_connection
 from django.http import StreamingHttpResponse
 from rest_framework.renderers import BaseRenderer
@@ -117,11 +119,25 @@ def sse_response(
     used would stay checked out for the connection's whole life. A handful of
     open streams would then exhaust a small pool (§1b bounds default to 5) and
     starve every other request into ``PoolTimeout``. This function therefore
-    returns the request's DB connection to the pool itself, right before
-    handing back the response — do all DB work before calling it.
+    returns the request's DB connection to the pool itself — do all DB work
+    before calling it.
+
+    *When* it does that depends on the calling view. From a sync view the close
+    happens before the response is handed back. From an **async** view it cannot:
+    ``connection.close()`` is ``@async_unsafe`` and raises on the event loop, and
+    the connection the view's sync auth/tenancy work used lives on asgiref's
+    thread-sensitive executor thread, not this one. There the close is deferred
+    into the generator's first step, where it can be routed back to that thread —
+    one iteration of the same task later, so the pool slot is still released
+    before any real streaming happens.
     """
 
     async def frames() -> AsyncIterator[str]:
+        if defer_close:
+            # See the docstring: an async caller can only release the connection
+            # from here, and only via the thread that actually holds it.
+            await sync_to_async(db_connection.close, thread_sensitive=True)()
+
         import redis.asyncio as aioredis
 
         client = aioredis.Redis.from_url(redis_url)
@@ -154,8 +170,15 @@ def sse_response(
                 await pubsub.aclose()
                 await client.aclose()
 
-    # See the docstring: endless responses must not pin pool slots.
-    db_connection.close()
+    # See the docstring: endless responses must not pin pool slots. A sync caller
+    # hands the connection back right now; an async one defers into frames().
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        defer_close = False
+        db_connection.close()
+    else:
+        defer_close = True
 
     response = StreamingHttpResponse(frames(), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"

@@ -1,9 +1,10 @@
+from django.http import HttpRequest, StreamingHttpResponse
 from django.urls import path
 from rest_framework.decorators import api_view
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from drf_foundation import session_auth
+from drf_foundation import realtime, session_auth
 from drf_foundation.auth import LoginView, RefreshView, logout
 from drf_foundation.schemas import ok
 from drf_foundation.views import health_check
@@ -13,6 +14,12 @@ from drf_foundation.views import health_check
 def protected_mutation(request: Request) -> Response:
     """A stand-in for any authenticated write — the surface CSRF has to cover."""
     return ok(None)
+
+
+async def sse_stream(request: HttpRequest) -> StreamingHttpResponse:
+    """An *async* view returning a stream — the only shape SSE takes under ASGI,
+    and the one where releasing the DB connection is @async_unsafe."""
+    return realtime.sse_response("redis://x", "events:test")
 
 
 urlpatterns = [
@@ -26,4 +33,5 @@ urlpatterns = [
     path("api/session/login", session_auth.LoginView.as_view(), name="session-login"),
     path("api/session/logout", session_auth.logout, name="session-logout"),
     path("api/session/protected", protected_mutation, name="session-protected"),
+    path("api/stream", sse_stream, name="sse-stream"),
 ]
