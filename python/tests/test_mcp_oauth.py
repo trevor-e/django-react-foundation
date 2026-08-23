@@ -24,6 +24,7 @@ from drf_foundation.mcp import (
     Resource,
     Scope,
     TokenCodec,
+    login_redirect,
     redirect_uri_allowed,
 )
 from tests.mcp_fixtures import (
@@ -599,3 +600,124 @@ def test_resource_dataclass_carries_the_projects_own_row(db):
     account = Account.objects.create(name="Held")
     resource = Resource(id=str(account.pk), label=account.name, obj=account)
     assert resource.obj is account
+
+
+# --- consumer-wiring guardrails ----------------------------------------------
+#
+# Each of these covers a mistake that is otherwise invisible until a real person
+# clicks Approve on a real deployment. They are cheap here and expensive there.
+
+
+def _config(**overrides):
+    defaults = {
+        "issuer": lambda: "https://x.test",
+        "resource_name": "X",
+        "codec": TokenCodec(prefix="tk_"),
+        "login_url": lambda request: "/login",
+    }
+    return OAuthConfig(**{**defaults, **overrides})
+
+
+def test_login_redirect_defaults_to_login_but_takes_the_apps_real_route(rf):
+    """An SPA's sign-in route is not a constant. Getting it wrong renders nothing
+    and kills the connection with no error anywhere, so it is an argument."""
+    request = rf.get("/oauth/authorize?client_id=abc")
+
+    default = login_redirect("https://app.example.test")(request)
+    assert default.startswith("https://app.example.test/login?next=")
+
+    custom = login_redirect("https://app.example.test", path="/auth")(request)
+    assert custom.startswith("https://app.example.test/auth?next=")
+
+    renamed = login_redirect("https://app.example.test", path="/signin", next_param="return_to")(
+        request
+    )
+    assert renamed.startswith("https://app.example.test/signin?return_to=")
+
+    # The return target round-trips the authorize request, so the flow resumes.
+    from urllib.parse import unquote
+
+    assert "/oauth/authorize" in unquote(custom)
+
+
+def test_login_redirect_rejects_a_path_that_is_not_a_path():
+    with pytest.raises(ValueError, match="must start with"):
+        login_redirect("https://app.example.test", path="auth")
+
+
+def test_a_resource_field_colliding_with_the_bases_user_is_refused_at_construction():
+    """`user` is the single most likely name for a per-user app to reach for, and
+    AbstractAuthorizationCode already owns it. Left unchecked this is a TypeError
+    about duplicate kwargs, raised from inside the consent view."""
+    with pytest.raises(TypeError, match="collides"):
+        McpOAuth(
+            provider=SINGLE_PROVIDER,
+            models=OAuthModels(
+                client=OAuthClient,
+                code=UserAuthorizationCode,
+                grant=UserGrant,
+                resource_field="user",
+            ),
+            config=_config(),
+        )
+
+
+def test_the_collision_message_names_the_way_out():
+    with pytest.raises(TypeError) as excinfo:
+        McpOAuth(
+            provider=SINGLE_PROVIDER,
+            models=OAuthModels(
+                client=OAuthClient,
+                code=UserAuthorizationCode,
+                grant=UserGrant,
+                resource_field="user",
+            ),
+            config=_config(),
+        )
+    message = str(excinfo.value)
+    assert "owner" in message
+    assert "completed consent" in message
+
+
+def test_a_resource_field_no_model_declares_is_refused_at_construction():
+    with pytest.raises(TypeError, match="is not a field on"):
+        McpOAuth(
+            provider=MULTI_PROVIDER,
+            models=OAuthModels(
+                client=OAuthClient,
+                code=AuthorizationCode,
+                grant=Grant,
+                resource_field="workspace",
+            ),
+            config=_config(),
+        )
+
+
+def test_both_working_shapes_still_construct():
+    """The guardrails must not reject either tenancy shape the package supports."""
+    McpOAuth(
+        provider=MULTI_PROVIDER,
+        models=OAuthModels(client=OAuthClient, code=AuthorizationCode, grant=Grant),
+        config=_config(),
+    )
+    McpOAuth(
+        provider=SINGLE_PROVIDER,
+        models=OAuthModels(
+            client=OAuthClient,
+            code=UserAuthorizationCode,
+            grant=UserGrant,
+            resource_field="owner",
+        ),
+        config=_config(),
+    )
+
+
+def test_the_error_page_names_the_projects_product_not_the_packages(authed, account):
+    """The default error template must not show another product's name."""
+    response = start(authed, "no-such-client")
+
+    assert response.status_code == 400
+    body = response.content.decode()
+    assert "adulting" not in body.lower()
+    # resource_name comes from the project's own OAuthConfig.
+    assert "Example" in body

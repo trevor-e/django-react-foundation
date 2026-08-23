@@ -11,7 +11,13 @@ declare, and the names :mod:`drf_foundation.mcp.oauth` looks them up by:
 ======================  ==========================================================
 ``client``              FK on the code and grant models, to the concrete client
 ``resource``            FK on the code and grant models, to whatever a token grants
-                        access to — a tenant row, or the user in a single-tenant app
+                        access to — a tenant row, or the user in a single-tenant app.
+                        Renameable via ``OAuthModels.resource_field``, but it may NOT
+                        be called ``user``: the code model below already declares that
+                        for the person who completed consent. In a per-user app the two
+                        are the same person and still not the same field — ``owner`` is
+                        the usual name. ``McpOAuth`` rejects a colliding name at
+                        construction rather than at somebody's first connection.
 ``issued_key``          Nullable FK on the code model, to the concrete key model
 ``api_key``             OneToOne on the grant model, to the concrete key model
 ``id``                  Whatever primary key the project uses
@@ -25,6 +31,8 @@ A concrete set looks like::
     class AuthorizationCode(AbstractAuthorizationCode):
         id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
         client = models.ForeignKey(OAuthClient, on_delete=models.CASCADE, related_name="codes")
+        # Per-user app? Call this `owner`, not `user` — see the note above — and pass
+        # OAuthModels(resource_field="owner").
         resource = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name="+")
         issued_key = models.ForeignKey(
             ApiKey, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"

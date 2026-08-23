@@ -136,6 +136,30 @@ _REQUIRED_PROVIDER_METHODS = ("resources", "resolve", "mint", "replace_previous"
 # --- configuration -----------------------------------------------------------
 
 
+#: Field names this package passes to ``code.objects.create()`` itself. A project's
+#: ``resource_field`` must not be one of them — most easily hit with ``"user"``, which
+#: :class:`~drf_foundation.mcp.models.AbstractAuthorizationCode` already declares for
+#: the human who completed consent. The collision is invisible until somebody actually
+#: approves a connection, at which point it is a ``TypeError`` from deep inside the
+#: consent view, so it is checked at construction instead.
+CODE_RESERVED_FIELDS = frozenset(
+    {
+        "client",
+        "code_hash",
+        "redirect_uri",
+        "code_challenge",
+        "user",
+        "scope",
+        "expires_at",
+        "used_at",
+        "issued_key",
+    }
+)
+
+#: The same, for ``grant.objects.create()``.
+GRANT_RESERVED_FIELDS = frozenset({"client", "api_key"})
+
+
 @dataclass(frozen=True)
 class OAuthModels:
     """The project's concrete tables. See :mod:`drf_foundation.mcp.models`.
@@ -284,6 +308,63 @@ def _consent_csp(redirect_uri: str) -> dict[str, list[str]] | None:
 # --- the server --------------------------------------------------------------
 
 
+def _declares(model: type[models.Model], name: str) -> bool:
+    try:
+        model._meta.get_field(name)
+    except Exception:
+        return False
+    return True
+
+
+def _check_resource_field(config_models: OAuthModels) -> None:
+    """Fail at construction on a ``resource_field`` that cannot work.
+
+    Both failure modes are otherwise invisible until a real person clicks Approve:
+    a name that collides with one this package sets itself raises a bare
+    ``TypeError`` about duplicate keyword arguments, and a name no model declares
+    raises a ``FieldError`` — both from inside the consent view, long after the
+    wiring was written.
+    """
+    field = config_models.resource_field
+    for model, reserved, what in (
+        (config_models.code, CODE_RESERVED_FIELDS, "authorization-code"),
+        (config_models.grant, GRANT_RESERVED_FIELDS, "grant"),
+    ):
+        if field in reserved:
+            hint = ""
+            if field == "user":
+                hint = (
+                    " AbstractAuthorizationCode already declares `user` for the person"
+                    " who completed consent; name the resource FK something else"
+                    " (`owner` is the usual choice for a per-user app) — they are the"
+                    " same person but not the same field."
+                )
+            raise TypeError(
+                f"OAuthModels.resource_field={field!r} collides with a field this"
+                f" package sets on the {what} model itself.{hint}"
+            )
+        if not _declares(model, field):
+            raise TypeError(
+                f"OAuthModels.resource_field={field!r} is not a field on"
+                f" {model.__name__} — the {what} model must declare a FK named"
+                f" {field!r} pointing at whatever a token grants access to."
+            )
+
+    # Same class of mistake, same cost if it is only found at consent time.
+    if not _declares(config_models.code, "issued_key"):
+        raise TypeError(
+            f"{config_models.code.__name__} must declare a nullable `issued_key` FK to"
+            " the API-key model — without it a replayed authorization code cannot"
+            " revoke what it minted."
+        )
+    if not _declares(config_models.grant, "api_key"):
+        raise TypeError(
+            f"{config_models.grant.__name__} must declare an `api_key` OneToOne to the"
+            " API-key model — without it reconnecting a client cannot replace its"
+            " previous key."
+        )
+
+
 class McpOAuth:
     """The authorization server: discovery, registration, consent, token exchange.
 
@@ -310,6 +391,7 @@ class McpOAuth:
             )
         if not getattr(provider, "scopes", None):
             raise TypeError(f"{type(provider).__name__}.scopes must list at least one Scope.")
+        _check_resource_field(models)
         self.provider = provider
         self.models = models
         self.config = config
@@ -343,7 +425,14 @@ class McpOAuth:
         return render(
             request,
             self.config.error_template,
-            {"title": title, "message": message},
+            # resource_name so the default template can name the product without
+            # every project having to override it just to stop showing somebody
+            # else's name.
+            {
+                "title": title,
+                "message": message,
+                "resource_name": self.config.resource_name,
+            },
             status=status,
         )
 
@@ -711,11 +800,30 @@ class McpOAuth:
         return routes
 
 
-def login_redirect(frontend_base_url: str) -> Callable[[HttpRequest], str]:
-    """A ``login_url`` that bounces to an SPA's login page and back again."""
+def login_redirect(
+    frontend_base_url: str,
+    *,
+    path: str = "/login",
+    next_param: str = "next",
+) -> Callable[[HttpRequest], str]:
+    """A ``login_url`` that bounces to an SPA's sign-in page and back again.
+
+    ``path`` and ``next_param`` are arguments because an SPA's sign-in route is not
+    a constant — ``/login``, ``/auth``, ``/signin`` are all common — and getting it
+    wrong fails in the worst possible way: the redirect succeeds, the SPA renders
+    nothing for an unknown route, and the connection dies on a blank page with no
+    error anywhere. Pass the route this app actually serves.
+
+    The SPA is responsible for honoring the return parameter, and for honoring it
+    *only* for URLs on its own API origin — the target is cross-origin by nature
+    (it points back at this authorization server), so a naive redirect to whatever
+    arrives would be an open redirect.
+    """
+    if not path.startswith("/"):
+        raise ValueError(f"login_redirect path must start with '/': {path!r}")
 
     def build(request: HttpRequest) -> str:
         target = quote(request.build_absolute_uri(), safe="")
-        return f"{frontend_base_url.rstrip('/')}/login?next={target}"
+        return f"{frontend_base_url.rstrip('/')}{path}?{next_param}={target}"
 
     return build

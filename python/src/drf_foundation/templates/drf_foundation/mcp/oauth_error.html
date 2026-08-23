@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
-  <title>{{ title }} — adulting.app</title>
+  <title>{{ title }}{% if resource_name %} — {{ resource_name }}{% endif %}</title>
   <style>
     :root { color-scheme: light dark; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center;
@@ -16,12 +16,15 @@
     }
     .card { width: min(26rem, calc(100vw - 2rem)); background: #fff;
             border: 1px solid #e2e5ea; border-radius: 12px; padding: 1.75rem; }
+    .brand { font-size: .8rem; font-weight: 700; letter-spacing: .08em;
+             text-transform: uppercase; color: #667085; margin: 0 0 .75rem; }
     h1 { font-size: 1.15rem; margin: 0 0 .5rem; }
     p { margin: 0; color: #667085; }
   </style>
 </head>
 <body>
   <main class="card">
+    {% if resource_name %}<p class="brand">{{ resource_name }}</p>{% endif %}
     <h1>{{ title }}</h1>
     <p>{{ message }}</p>
   </main>
