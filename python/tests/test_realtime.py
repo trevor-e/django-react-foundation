@@ -1,4 +1,5 @@
 import logging
+import threading
 
 import pytest
 
@@ -69,6 +70,55 @@ def test_sse_response_releases_the_db_connection(db, monkeypatch):
     response = realtime.sse_response("redis://nowhere:1", "events:h1")
     assert calls, "sse_response must return the request's DB connection to the pool"
     response.close()
+
+
+def test_sse_response_from_an_async_view_does_not_500(monkeypatch, db, client):
+    # The regression: releasing the connection inline raised SynchronousOnlyOperation
+    # on the event loop, so an async streaming view 500'd outright. Driven through a
+    # real async view, since that is the only shape SSE takes under ASGI.
+    _patch_aioredis(monkeypatch, [b"1"])
+
+    response = client.get("/api/stream")
+
+    assert response.status_code == 200
+    assert response["Content-Type"] == "text/event-stream"
+    response.close()
+
+
+def test_sse_response_releases_the_db_connection_from_an_async_view(monkeypatch, db):
+    # connection.close() is @async_unsafe, so an async caller cannot release the
+    # connection inline — it is deferred to the generator's first step and routed
+    # back to the thread that owns the connection.
+    #
+    # Build and consume inside ONE async context, the way a real ASGI request does:
+    # the thread-sensitive routing is what puts the close on the owning thread, and
+    # splitting the two across contexts (a sync test client, then a drain) breaks
+    # that routing in the harness only.
+    from asgiref.sync import async_to_sync
+    from django.db import connection
+
+    closed_on: list[int] = []
+    monkeypatch.setattr(
+        type(connection),
+        "close",
+        lambda self: closed_on.append(threading.get_ident()),
+        raising=False,
+    )
+    _patch_aioredis(monkeypatch, [b"1"])
+
+    async def build_and_consume():
+        response = realtime.sse_response("redis://x", "events:h1")
+        assert not closed_on, "the close must not run inline on the event loop"
+        return await _consume(response, 1)
+
+    owner_thread = connection._thread_ident
+    chunks = async_to_sync(build_and_consume)()
+
+    assert chunks == ["event: connected\ndata: ok\n\n"]
+    assert closed_on == [owner_thread], (
+        "the deferred close must run on the thread that owns the connection — "
+        "closing from any other thread trips Django's thread-sharing guard"
+    )
 
 
 class _FakePubSub:
