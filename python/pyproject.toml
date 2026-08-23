@@ -44,6 +44,7 @@ dev = [
     "redis>=5.0",
     "django-structlog>=10.0",
     "sentry-sdk>=2.0",
+    "time-machine>=3.4.0",
 ]
 
 [tool.ruff]
