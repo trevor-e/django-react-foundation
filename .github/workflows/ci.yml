@@ -43,7 +43,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      # No packageManager key in package.json (and adding one would change a package
+      # consumers install from git), so the version is pinned here instead. Major only —
+      # pnpm 10 is what writes the committed lockfileVersion 9.0.
       - uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
