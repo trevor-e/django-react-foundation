@@ -1,6 +1,6 @@
 [project]
 name = "django-drf-foundation"
-version = "0.19.2"
+version = "0.20.0"
 description = "Pydantic-inside-DRF wire schemas, deny-by-default permissions, OpenAPI generation, transactional email, and generated-TS-types plumbing for Django + DRF APIs."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,7 +12,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-auth = ["djangorestframework-simplejwt>=5.5"]
 celery = ["celery>=5.3", "redis>=5.0"]
 realtime = ["redis>=5.0"]
 logging = ["django-structlog>=10.0"]
@@ -40,7 +39,6 @@ dev = [
     "pytest-django>=4.8",
     "ruff>=0.6",
     "celery>=5.3",
-    "djangorestframework-simplejwt>=5.5",
     "redis>=5.0",
     "django-structlog>=10.0",
     "sentry-sdk>=2.0",
