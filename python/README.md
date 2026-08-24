@@ -465,9 +465,24 @@ uv run pytest
 
 ## What this package deliberately does NOT cover
 
-- **Auth/registration** (JWT issuance, user model, email verification) — those tie to a
-  concrete `User` model and migration history, so they're a much heavier lift to share as a
-  drop-in package. Copy the pattern from a reference project instead of importing it.
+- **The user model** — `AUTH_USER_MODEL` cannot be swapped after a project's first
+  migration, and every real one mixes generic auth fields with product fields. An
+  abstract base is the only shareable shape, and it has not been designed yet.
+- **Registration, password reset, email verification.** Login *is* covered
+  (`session_auth`, `auth`), because the credential exchange is the same everywhere. The
+  flows around it are not, and the reason is concrete rather than aspirational: the two
+  consumers of this package implement them on stacks that share no code. One hand-rolls
+  plain DRF views over `django.core.signing`; the other uses allauth + dj-rest-auth and
+  does not have those views at all. Extracting either one produces a module the other
+  can never import — allauth would have to become a dependency of a project that
+  deliberately avoids it.
+
+  So this is not "not yet". It is: **there is nothing shared to extract until two
+  projects pick the same stack.** If that ever happens, the hand-rolled one is the
+  candidate, because it drags no third-party auth framework into every consumer. Until
+  then, copy the pattern from a reference project rather than importing it, and do not
+  let a proposal to "finish extracting auth" survive without re-checking that a second
+  consumer could actually use the result.
 - **Settings boilerplate** beyond what's listed above (`CONN_MAX_AGE`, `ruff`/type-checker
   config, etc.) — those live in the blueprint doc as copy-paste recipes, not in this package,
   since a settings module isn't meaningfully "importable" the way a schema/permission layer is.
