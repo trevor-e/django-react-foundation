@@ -1,0 +1,60 @@
+name: Release
+
+# The two packages version independently and are consumed by git tag, so the tag IS the
+# release. This makes a tag verifiable: the checks run against the tagged commit, and the
+# tag's version has to match the version the package declares.
+on:
+  push:
+    tags:
+      - "py-v*"
+      - "js-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  version-matches-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: The declared version must equal the tag
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          case "$tag" in
+            py-v*)
+              want="${tag#py-v}"
+              got=$(sed -n 's/^version = "\(.*\)"/\1/p' python/pyproject.toml | head -1)
+              file="python/pyproject.toml"
+              ;;
+            js-v*)
+              want="${tag#js-v}"
+              got=$(node -p "require('./package.json').version")
+              file="package.json"
+              ;;
+            *)
+              echo "::error::unrecognized tag prefix: $tag"; exit 1 ;;
+          esac
+          echo "tag=$tag  $file declares $got"
+          if [ "$want" != "$got" ]; then
+            echo "::error::$file declares $got but the tag says $want — bump the version in the same commit you tag, or move the tag"
+            exit 1
+          fi
+
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: [version-matches-tag, checks]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Nothing is published to a registry — consumers install from the tag. The Release is
+      # the visible "this tag passed" marker, so a tag with no Release is a tag to distrust.
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --verify-tag
