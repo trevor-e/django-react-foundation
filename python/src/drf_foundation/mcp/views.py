@@ -115,7 +115,7 @@ def mcp_endpoint(
     context: Callable[[Any], Any],
     issuer: Callable[[], str],
     mcp_path: str = "/mcp",
-    realm: str = "MCP",
+    realm: str | None = "MCP",
     select_related: tuple[str, ...] = (),
     refuse: Callable[[Any], str | None] | None = None,
     throttle_scope: str | None = None,
@@ -130,6 +130,11 @@ def mcp_endpoint(
     ``refuse`` is the project's extra credential check beyond "the key exists and is
     not revoked": return a message to reject with 401, or ``None`` to allow. The
     usual case is a deactivated account, which the key itself knows nothing about.
+
+    ``realm`` is the optional RFC 6750 auth-param on the 401. Pass ``None`` to omit it
+    and send ``resource_metadata`` alone — which is all an RFC 9728 client reads, and
+    what a project already live without a realm wants, since the handshake is the one
+    place a cosmetic difference is not worth testing against every client in the wild.
 
     ``throttle_scope`` names a ``DEFAULT_THROTTLE_RATES`` entry; omit it for no
     per-key limit. When set, every response carries ``X-RateLimit-*`` so a client
@@ -147,7 +152,10 @@ def mcp_endpoint(
     def unauthorized(detail: str) -> HttpResponse:
         response = JsonResponse({"error": "invalid_token", "error_description": detail}, status=401)
         metadata = f"{issuer().rstrip('/')}/.well-known/oauth-protected-resource"
-        response["WWW-Authenticate"] = f'Bearer realm="{realm}", resource_metadata="{metadata}"'
+        params = [f'resource_metadata="{metadata}"']
+        if realm is not None:
+            params.insert(0, f'realm="{realm}"')
+        response["WWW-Authenticate"] = f"Bearer {', '.join(params)}"
         return _cors(response)
 
     @csrf_exempt

@@ -10,8 +10,9 @@ import json
 
 import pytest
 from django.core.cache import cache
+from django.test import RequestFactory
 
-from drf_foundation.mcp.views import KeyRateThrottle
+from drf_foundation.mcp.views import KeyRateThrottle, mcp_endpoint
 from tests.mcp_fixtures import CODEC
 from tests.testapp.models import Account, ApiKey
 
@@ -295,3 +296,26 @@ def test_a_disabled_scope_serves_normally_and_reports_no_budget(client, throttle
     assert response.status_code == 200
     assert "X-RateLimit-Limit" not in response
     assert "X-RateLimit-Remaining" not in response
+
+
+def test_the_realm_can_be_omitted():
+    """`resource_metadata` alone is all an RFC 9728 client reads, and a project already
+    live without a realm should not have to change its handshake bytes to adopt this."""
+    from tests.mcp_fixtures import CODEC as _CODEC
+    from tests.mcp_fixtures import TEST_SERVER, _context
+    from tests.testapp.models import ApiKey as _ApiKey
+
+    view = mcp_endpoint(
+        server=TEST_SERVER,
+        key_model=_ApiKey,
+        codec=_CODEC,
+        context=_context,
+        issuer=lambda: "https://api.example.test",
+        realm=None,
+    )
+    request = RequestFactory().post("/mcp", data="{}", content_type="application/json")
+
+    header = view(request)["WWW-Authenticate"]
+
+    assert header.startswith("Bearer resource_metadata=")
+    assert "realm" not in header
