@@ -402,11 +402,24 @@ ENDPOINT = mcp_endpoint(
     realm="MyApp", select_related=("user",),
     refuse=lambda key: None if key.user.is_active else "This account is not active.",
     throttle_scope="mcp-key",      # needs a DEFAULT_THROTTLE_RATES entry
+    max_body_bytes=262_144,        # None disables the cap
 )
 
 # urls.py — root-mounted; the well-known paths are fixed by spec.
 urlpatterns += OAUTH.urlpatterns(mcp_view=ENDPOINT, mcp_route="mcp")
 ```
+
+`throttle_scope` does more than refuse: **every** response then carries
+`X-RateLimit-Limit/Remaining/Reset`. An agent that can read its remaining budget paces
+itself; one that cannot finds the ceiling by hitting it, and a 429 arriving mid-conversation
+is indistinguishable from the tool being broken. The 429 adds `Retry-After`, and all of
+them are named in `Access-Control-Expose-Headers` so a browser-based client can actually
+read them.
+
+`max_body_bytes` caps the request body — a tools-only JSON-RPC call is small, and without
+a ceiling a request still costs a full read into memory. Over the cap answers 413 as a
+JSON-RPC error envelope rather than a bare body, since an MCP client cannot tell an
+unparseable response from a broken server.
 
 **5. A production check.** The discovery documents embed the issuer and clients follow
 whatever they say, so refuse to boot on a non-https one:
