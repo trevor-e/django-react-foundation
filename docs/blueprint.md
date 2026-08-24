@@ -530,6 +530,14 @@ shape passes — `curl -H 'Host: healthcheck.railway.app' http://localhost:8000/
 - The rule: **when you change behavior, update the matching doc in the same change.**
 - A `CLAUDE.md` (or `AGENTS.md`) so coding agents inherit all of the above as standing
   instructions.
+- **This blueprint is vendored, not forked.** A project that wants it locally copies it
+  into `docs/` and **re-syncs from upstream** rather than editing in place, keeping local
+  additions to clearly-marked cross-references. State that in the docs table so the next
+  reader knows which way the edits flow. A copy that gets edited locally becomes a fork,
+  and a fork silently stops receiving the sections added upstream — the same failure the
+  §17d skill symlink avoids, in doc form. If a project genuinely needs its own
+  conventions doc, that is a *different file* with its own name, not a diverged copy of
+  this one.
 
 ---
 
@@ -694,13 +702,14 @@ The original by-hand checklist, kept for understanding what the template gives y
 (and for retrofitting an existing project):
 
 1. `uv init` backend; add Django, DRF, pydantic, dev group (pytest, pyrefly, ruff, stubs).
-2. `uv add "django-drf-foundation @ git+https://github.com/trevor-e/django-react-foundation.git@v0.1.0#subdirectory=python"`
+2. `uv add "django-drf-foundation @ git+https://github.com/trevor-e/django-react-foundation.git@py-v<latest>#subdirectory=python"`
+   (current tags: the repo's Releases page — `py-v*` for backend, `js-v*` for frontend)
    — add `drf_foundation` to `INSTALLED_APPS`, wire the exception handler (§3, §4). No
    file-copying needed.
 3. Register deny-by-default permissions in settings; add `test_settings.py`.
 4. Put ruff + pyrefly + pytest config in `pyproject.toml`.
 5. `docker-compose.test.yml` (throwaway Postgres, non-default port) + `conftest.py` fixtures.
-6. Frontend: Vite + TS (`@→src` alias); `pnpm add "github:trevor-e/django-react-foundation#v0.1.0"`
+6. Frontend: Vite + TS (`@→src` alias); `pnpm add "github:trevor-e/django-react-foundation#js-v<latest>"`
    for the API client + query-key factory + `gen-types` CLI (§13, §14, §3c) — again, no
    file-copying.
 7. `Makefile` with the targets in §9 (including `gen-api-types` / `check-api-schema`).
