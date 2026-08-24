@@ -468,12 +468,18 @@ uv run pytest
 - **The user model** — `AUTH_USER_MODEL` cannot be swapped after a project's first
   migration, and every real one mixes generic auth fields with product fields. An
   abstract base is the only shareable shape, and it has not been designed yet.
-- **Registration, password reset, email verification.** Login *is* covered
-  (`session_auth`, `auth`), because the credential exchange is the same everywhere. The
-  flows around it are not, and the reason is concrete rather than aspirational: the two
-  consumers of this package implement them on stacks that share no code. One hand-rolls
-  plain DRF views over `django.core.signing`; the other uses allauth + dj-rest-auth and
-  does not have those views at all. Extracting either one produces a module the other
+- **The account-flow *views*** — register, verify, reset, change-password. Their token
+  mechanics *are* covered, by `drf_foundation.accounts`: `PasswordResetLink` and
+  `SignedUserToken`, which is where account-takeover bugs actually live. What stays in
+  the project is the view body, because that is where the product decisions are — a bot
+  check, an invite token, which audit verb, which mail template. A shared view would need
+  an injection point per decision, and configuring it would cost more code than the copy.
+
+  Login *is* covered (`session_auth`, `auth`), because the credential exchange is the
+  same everywhere. The flows around it are not, and the reason is concrete rather than
+  aspirational: the two consumers of this package implement them on stacks that share no
+  code. One hand-rolls plain DRF views over `django.core.signing`; the other uses
+  allauth + dj-rest-auth and does not have those views at all. Extracting either one produces a module the other
   can never import — allauth would have to become a dependency of a project that
   deliberately avoids it.
 
