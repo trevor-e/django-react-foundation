@@ -15,7 +15,7 @@ the `python/` subdirectory of the `django-react-foundation` repo (its sibling `r
 frontend package lives at that repo's root — see the top-level README for why):
 
 ```bash
-uv add "django-drf-foundation @ git+https://github.com/trevor-e/django-react-foundation.git@v0.1.0#subdirectory=python"
+uv add "django-drf-foundation @ git+https://github.com/trevor-e/django-react-foundation.git@py-v<latest>#subdirectory=python"
 ```
 
 ## Setup
@@ -95,16 +95,29 @@ Grep `public_endpoint` at any time for the complete, auditable public-route allo
 ### Browser auth: pick one module
 
 Two wire contracts ship here, matching the two modes of `react-vite-foundation`'s
-apiClient. Mount one set of routes, not both:
+apiClient.
 
-- **`drf_foundation.session_auth`** — Django's session cookie. `HttpOnly`, so page
-  JavaScript cannot read or leak the credential, and revocation is a session-row delete.
-  DRF's `SessionAuthentication` enforces CSRF for you, on cookie-authenticated unsafe
-  methods only. The trade: a frontend on a *different site* never receives the cookie, so
-  it cannot authenticate at all. Pair with `session_auth_settings()`.
-- **`drf_foundation.auth`** — simplejwt access/refresh pair (needs the `auth` extra). For
-  cross-site or native clients. Its tokens are readable by page JavaScript, so any
-  successful XSS can exfiltrate a replayable credential.
+**`drf_foundation.session_auth`** — Django's session cookie. `HttpOnly`, so page
+JavaScript cannot read or leak the credential, and revocation is a session-row delete.
+DRF's `SessionAuthentication` enforces CSRF for you, on cookie-authenticated unsafe
+methods only. The trade: a frontend on a *different site* never receives the cookie, so
+it cannot authenticate at all. Pair with `session_auth_settings()`.
+
+This is the package's only auth flavour. A `drf_foundation.auth` module used to ship a
+simplejwt access/refresh pair behind an `auth` extra; it was removed once both consumers
+had moved to session cookies and it had zero importers. The frontend package still
+supports JWT mode in its apiClient, so a cross-site or native client remains possible —
+it just brings its own backend views rather than importing them from here.
+
+**One ordering gotcha, because it costs a production debugging session.** DRF takes the
+status code for an unauthenticated request from the *first* entry in
+`DEFAULT_AUTHENTICATION_CLASSES`, via that authenticator's `authenticate_header()`. Stock
+`SessionAuthentication` returns `None` there, so a **session-only** stack answers `403`,
+not `401` — and an SPA that keys "signed out" on 401 will keep rendering as though the
+user were still logged in. Lead the list with a header authenticator (an API-key or token
+class) and you get 401 for free; otherwise subclass `SessionAuthentication` and override
+`authenticate_header`. Not fixed in this package because both consumers lead with a header
+authenticator and neither needs it (§17 Gate 0).
 
 ```python
 # accounts/urls.py — session auth
@@ -136,7 +149,7 @@ the rotated one (`django.contrib.auth.login` rotates it), so clients never have 
 re-fetch. Registration stays project code — call `start_session(request, user)` after
 creating the user.
 
-Rate-limit anonymous auth endpoints and personal-API-token traffic:
+Rate-limit sensitive auth endpoints and personal-API-token traffic:
 
 ```python
 from drf_foundation.throttling import (
@@ -159,8 +172,30 @@ REST_FRAMEWORK = {
 ```
 
 `TokenUserRateThrottle` only throttles requests authenticated via DRF's `TokenAuthentication`
-(personal API tokens) — JWT, shared-key, and anonymous traffic all bypass it, so putting it
-in `DEFAULT_THROTTLE_CLASSES` is safe globally.
+(personal API tokens) — session, shared-key and anonymous traffic all bypass it, so putting
+it in `DEFAULT_THROTTLE_CLASSES` is safe globally. It checks
+`isinstance(request.auth, rest_framework.authtoken.models.Token)` specifically: a project
+whose personal tokens are a different model (one that hashes them at rest, say) gets no
+throttling from it and should subclass to widen the check.
+
+`LoginRateThrottle`, `RegisterRateThrottle` and `CsrfBootstrapRateThrottle` derive from
+**`IpKeyedThrottle`**, which keys the bucket on client IP *regardless of auth state*.
+Subclass it for any other endpoint that needs the same:
+
+```python
+from drf_foundation.throttling import IpKeyedThrottle
+
+class PasswordResetRateThrottle(IpKeyedThrottle):
+    scope = "auth-password-reset"   # rate comes from DEFAULT_THROTTLE_RATES
+```
+
+They used to derive from DRF's `AnonRateThrottle`, whose `get_cache_key` returns `None`
+for an authenticated request — which means no throttling at all once the caller has a
+session. For registration that is actively dangerous: a successful signup *signs the new
+user in*, so every signup after the first from that browser was unthrottled. Both
+consumers of this package independently hit this and patched it locally before it was
+fixed here. **If you were relying on these classes exempting signed-in callers, they no
+longer do** — that was the bug.
 
 Check Celery/Redis broker health (e.g. for an admin dashboard) — install the `celery` extra
 (`django-drf-foundation[celery]`) first:
