@@ -170,3 +170,24 @@ def test_a_payload_that_is_not_a_valid_key_denies():
         pk = "not-a-uuid"
 
     assert VERIFY.load(FakeUser, VERIFY.make(Obj())) is None
+
+
+def test_a_uid_that_is_not_a_valid_key_denies_rather_than_raises():
+    """A UUID-keyed project raises ValidationError, not ValueError, for a uid that
+    decodes to something that is not a UUID. Missing it turns an attacker-supplied uid
+    into a 500 on a public endpoint — which is exactly what shipped in 0.19.1."""
+
+    class FakeUser:
+        class DoesNotExist(Exception):
+            pass
+
+    class Raising:
+        def get(self, pk):
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError(f"“{pk}” is not a valid UUID.")
+
+    FakeUser._default_manager = Raising()
+
+    for uid in ("!!!", "", "Zm9v", "----"):
+        assert RESET.resolve(FakeUser, uid, "any-token") is None

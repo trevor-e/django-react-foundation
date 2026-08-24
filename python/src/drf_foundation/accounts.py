@@ -59,7 +59,16 @@ class PasswordResetLink:
         try:
             pk = urlsafe_base64_decode(uid).decode()
             user = user_model._default_manager.get(pk=pk)
-        except (TypeError, ValueError, OverflowError, user_model.DoesNotExist):
+        except (
+            TypeError,
+            ValueError,
+            OverflowError,
+            ValidationError,
+            user_model.DoesNotExist,
+        ):
+            # ValidationError is the one that is easy to miss: a UUID primary key raises
+            # it — not ValueError — for a uid that decodes to something that is not a
+            # UUID. Without it an attacker-supplied uid is a 500 on a public endpoint.
             return None
         if not self.generator.check_token(user, token):
             return None
