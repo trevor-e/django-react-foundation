@@ -895,3 +895,29 @@ An exclusion phrased as effort ("a much heavier lift to share") reads as *not ye
 invites the re-attempt. An exclusion phrased as a gate failure closes the question until
 the world changes. Write them in the form **"there is nothing shared to extract until X"**,
 and name the X — then a proposal to extract it has to argue that X happened.
+
+### 17d. The gates as a skill
+
+The gates only help if they run when an extraction is proposed, which is from whichever
+consumer repo you happen to be in — not from the foundation. So they ship as a Claude Code
+skill, `extract-to-foundation`, tracked in this repo at `skills/` and symlinked into the
+user-level skills directory:
+
+```sh
+ln -s "$PWD/skills/extract-to-foundation" ~/.claude/skills/extract-to-foundation
+```
+
+Symlink rather than copy, so editing the skill and committing it are the same act — a
+drifted process skill is worse than none, because it will confidently cite gates that have
+since changed. See [`skills/README.md`](../skills/README.md).
+
+The skill adds three rules on top of the gates, each one a lesson from the two failed
+attempts: no proposal gets written before Gates 0–2 pass (evidence is cheap; a 22-task
+proposal against an unverified assumption is not), no gate may be claimed passed from
+memory or from a docstring (the assumption about the second consumer's 403 was simply
+wrong, and one `rg` would have shown it), and a failed gate *ends* the extraction rather
+than triggering a re-scope — that re-scope loop is what produced two dead proposals instead
+of one.
+
+Same reasoning as §16's OpenSpec skills: the process is exactly as reusable as the code, so
+it belongs in the repo the process is about, not only in one machine's home directory.
