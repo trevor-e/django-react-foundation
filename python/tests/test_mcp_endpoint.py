@@ -281,3 +281,17 @@ def test_a_body_under_the_cap_is_fine(client):
     response = rpc(client, secret, "ping", {"pad": "x" * 512})
 
     assert response.status_code == 200
+
+
+def test_a_disabled_scope_serves_normally_and_reports_no_budget(client, throttle_rate):
+    """`DEFAULT_THROTTLE_RATES[scope] = None` is DRF's idiom for switching a bucket
+    off, and what test settings usually do. DRF short-circuits before recording any
+    history, so there is no budget — the endpoint must still answer, not 500."""
+    throttle_rate(None)
+    secret, _ = mint()
+
+    response = rpc(client, secret, "ping")
+
+    assert response.status_code == 200
+    assert "X-RateLimit-Limit" not in response
+    assert "X-RateLimit-Remaining" not in response

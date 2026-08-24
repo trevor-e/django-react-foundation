@@ -90,11 +90,19 @@ class KeyRateThrottle(SimpleRateThrottle):
         ``allow_request`` leaves ``history`` holding this request on success and a
         full window on refusal, so ``len(history)`` is the count either way and the
         oldest entry is when a slot next frees.
+
+        Empty when the scope is switched off — ``DEFAULT_THROTTLE_RATES[scope] = None``
+        is the DRF idiom for that, and the one test settings usually reach for. DRF
+        short-circuits ``allow_request`` before recording any history in that case, so
+        there is no budget to report and reporting a fabricated one would be worse.
         """
-        oldest = self.history[-1] if self.history else self.now
+        history = getattr(self, "history", None)
+        if self.rate is None or history is None:
+            return {}
+        oldest = history[-1] if history else self.now
         return {
             "X-RateLimit-Limit": str(self.num_requests),
-            "X-RateLimit-Remaining": str(max(0, self.num_requests - len(self.history))),
+            "X-RateLimit-Remaining": str(max(0, self.num_requests - len(history))),
             "X-RateLimit-Reset": str(int(oldest + self.duration)),
         }
 
