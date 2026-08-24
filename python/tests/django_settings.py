@@ -19,8 +19,6 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "rest_framework",
     "rest_framework.authtoken",
-    "rest_framework_simplejwt",
-    "rest_framework_simplejwt.token_blacklist",
     "drf_foundation",
     "tests.testapp",
 ]
@@ -49,11 +47,6 @@ DEFAULT_FROM_EMAIL = "noreply@example.com"
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 FRONTEND_BASE_URL = "https://app.example.com"
 
-# Rotating refresh + blacklist — what drf_foundation.auth's contract assumes.
-from drf_foundation.settings_helpers import simple_jwt_defaults  # noqa: E402
-
-SIMPLE_JWT = simple_jwt_defaults()
-
 # NOT applied globally: `session_auth_settings()` turns on CSRF_USE_SESSIONS, which
 # hard-errors any request whose middleware stack lacks SessionMiddleware — and several
 # modules here drive views through a trimmed stack. The session-auth tests opt in
@@ -62,7 +55,13 @@ SIMPLE_JWT = simple_jwt_defaults()
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        # A header credential first, then the session cookie — the shape BOTH consumers
+        # run (one leads with an API-key authenticator, the other with personal tokens).
+        # The order is load-bearing: DRF takes the unauthenticated status code from the
+        # *first* authenticator's `authenticate_header()`, so this list answers 401.
+        # `tests/test_session_auth_module.py` covers the session-only case separately,
+        # which answers 403 — see that test for why it is not a bug in this package.
+        "rest_framework.authentication.TokenAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
     "EXCEPTION_HANDLER": "drf_foundation.schemas.api_exception_handler",

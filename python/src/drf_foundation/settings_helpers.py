@@ -214,26 +214,6 @@ def session_auth_settings(
     return settings
 
 
-def simple_jwt_defaults() -> dict[str, Any]:
-    """SIMPLE_JWT matching the apiClient contract: rotating refresh tokens with
-    blacklist (requires `rest_framework_simplejwt.token_blacklist` installed).
-
-    JWT is the cross-site/native option; for a same-site first-party SPA prefer
-    :func:`session_auth_settings` + :mod:`drf_foundation.session_auth`, where the
-    credential is an ``HttpOnly`` cookie JavaScript cannot read."""
-    from datetime import timedelta
-
-    return {
-        "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
-        "REFRESH_TOKEN_LIFETIME": timedelta(days=14),
-        "ROTATE_REFRESH_TOKENS": True,
-        "BLACKLIST_AFTER_ROTATION": True,
-        "AUTH_HEADER_TYPES": ("Bearer",),
-        "USER_ID_FIELD": "id",
-        "USER_ID_CLAIM": "user_id",
-    }
-
-
 def structlog_logging(*, json_output: bool, level: str = "INFO") -> dict[str, Any]:
     """Configure structlog and return the Django ``LOGGING`` dict — one call in
     settings.py gives the whole process structured, context-carrying logs.

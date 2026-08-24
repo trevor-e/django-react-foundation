@@ -171,10 +171,15 @@ def test_logout_without_a_session_still_succeeds(db, client):
     assert response.status_code == 200
 
 
-def test_header_authenticated_request_skips_csrf(user, make_authed_client):
+def test_header_authenticated_request_skips_csrf(user, db):
     """API keys and other header credentials must not be dragged into CSRF: they are
     not sent automatically by browsers, so there is nothing to forge."""
-    authed = make_authed_client(user)
+    from rest_framework.authtoken.models import Token
+    from rest_framework.test import APIClient
+
+    token, _ = Token.objects.get_or_create(user=user)
+    authed = APIClient()
+    authed.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
 
     response = authed.post("/api/session/protected", {}, format="json")
 
@@ -186,3 +191,26 @@ def test_csrf_bootstrap_is_anonymous_and_returns_a_token(db, client):
 
     assert response.status_code == 200
     assert response.json()["data"]["csrf_token"]
+
+
+def test_stock_session_auth_sends_no_www_authenticate_challenge():
+    """Why a session-only stack answers **403** rather than 401 for an unauthenticated
+    request: DRF takes the status from the first authenticator's ``authenticate_header()``,
+    and stock ``SessionAuthentication`` returns ``None`` there (no challenge -> 403). A
+    header authenticator returns one, which is why 401 comes back the moment a stack leads
+    with an API-key or token authenticator.
+
+    Asserted on the authenticators rather than through a view because DRF binds
+    ``APIView.authentication_classes`` at import time, so overriding the setting in a test
+    cannot reach an already-imported view.
+
+    Not fixed in this package deliberately: both current consumers lead with a header
+    authenticator and already get 401, so there is nothing shared to fix (blueprint §17
+    Gate 0). A session-only project that needs 401 subclasses ``SessionAuthentication``
+    and overrides ``authenticate_header``. Covered here because this package's own test
+    settings used to lead with a JWT authenticator, which hid the whole question.
+    """
+    from rest_framework.authentication import SessionAuthentication, TokenAuthentication
+
+    assert SessionAuthentication().authenticate_header(None) is None
+    assert TokenAuthentication().authenticate_header(None) == "Token"

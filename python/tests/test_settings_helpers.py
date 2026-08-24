@@ -5,7 +5,6 @@ from drf_foundation.settings_helpers import (
     pooled_database,
     production_security_settings,
     redis_cache,
-    simple_jwt_defaults,
 )
 
 
@@ -80,12 +79,6 @@ def test_allowed_hosts_include_healthcheck_prober():
 def test_allowed_hosts_append_railway_domain():
     hosts = allowed_hosts_from_env(env={"RAILWAY_PUBLIC_DOMAIN": "x.up.railway.app"})
     assert "x.up.railway.app" in hosts
-
-
-def test_simple_jwt_defaults_rotate_and_blacklist():
-    config = simple_jwt_defaults()
-    assert config["ROTATE_REFRESH_TOKENS"] is True
-    assert config["BLACKLIST_AFTER_ROTATION"] is True
 
 
 def test_pooled_database_bounds_from_env():

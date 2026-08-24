@@ -28,43 +28,6 @@ def make_user(db):
 
 
 @pytest.fixture
-def make_authed_client():
-    """A real-JWT-bearing client, not `force_authenticate` — middleware and
-    authenticators that parse the Authorization header themselves (e.g. tenancy
-    middleware) never see forced auth, so tests must carry a real token."""
-    from rest_framework.test import APIClient
-    from rest_framework_simplejwt.tokens import RefreshToken
-
-    def _make(user) -> "APIClient":
-        client = APIClient()
-        token = RefreshToken.for_user(user).access_token
-        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
-        return client
-
-    return _make
-
-
-@pytest.fixture
-def make_authed_async_client():
-    """`make_authed_client`'s AsyncClient twin, for tests that drive the real
-    ASGI stack (SSE streams, async views).
-
-    Carries the Django 6.1 gotcha so projects don't rediscover it: AsyncClient's
-    ``headers=`` kwarg re-prefixes names on the async path (the request sees
-    ``HTTP_HTTP_AUTHORIZATION``), silently unauthenticating the client.
-    Constructor *scope extras* become ASGI header names verbatim, so that is the
-    reliable spelling."""
-    from django.test import AsyncClient
-    from rest_framework_simplejwt.tokens import RefreshToken
-
-    def _make(user) -> "AsyncClient":
-        token = RefreshToken.for_user(user).access_token
-        return AsyncClient(AUTHORIZATION=f"Bearer {token}")
-
-    return _make
-
-
-@pytest.fixture
 def keep_test_connection():
     """For tests that drive the real WSGI/ASGI handler (Schemathesis fuzzing, a raw
     werkzeug client) instead of Django's test client: the real handler's request

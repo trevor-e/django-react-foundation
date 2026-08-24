@@ -1,7 +1,7 @@
 """HTML email bodies: one plain-text body and one HTML body per kind.
 
 Promoted from adulting.app. The package already owns the *flows* that send
-transactional mail (``drf_foundation.auth`` issues verification and password-reset
+transactional mail (``drf_foundation.accounts`` mints verification and password-reset
 tokens; ``/auth-ui`` renders their pages) but shipped no bodies for the mail those
 flows send — every project re-derived the same table-layout markup by hand.
 
