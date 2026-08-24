@@ -774,3 +774,124 @@ across every project that adopts it. The skill definitions themselves are Claude
 skills (installable at `~/.claude/skills/` to be available in every project regardless of
 which repo you're in, or per-project at `.claude/skills/`); this section documents the
 convention so a fresh project's `CLAUDE.md` can adopt the same discipline immediately.
+
+---
+
+## 17. Extracting into the foundation
+
+The foundation earns its keep only if extraction is cheaper than duplication. Two failed
+attempts at extracting auth (§17b) cost more than writing the code twice would have, and
+both failed at the same step: the interface was designed against one consumer, and the
+second consumer was consulted last.
+
+**The rule that fixes it: consumer #2 is the design review, and it happens before the tag
+— not after.**
+
+### 17a. The gates
+
+Run these in order. A gate that fails ends the extraction; it does not get deferred.
+
+**Gate 0 — two call sites, in hand.** The trigger for extraction is never "this looks
+reusable." It is "I am about to write this a second time, and here is the first one." If
+only one project has the code today, there is nothing to extract. What you have is a
+*proposal to converge two stacks*, which is a different change with its own justification
+(Gate 2).
+
+Nothing enters either package with one consumer. A module only one project can import is
+strictly worse than a copy: the same maintenance, plus a version pin and a release.
+
+**Gate 1 — diff the two, ship the intersection only.** Put both implementations side by
+side and write down, in the proposal, which lines are *identical* and which are product
+decisions. Only the identical part goes up.
+
+The test for whether the line is drawn in the right place:
+
+> If sharing it requires an injection point per difference, it is not one thing. It is
+> two things wearing a trench coat.
+
+A shared function with five hooks, each one existing because one consumer needed something
+the other didn't, has not removed duplication — it has moved it into a signature and added
+indirection on top.
+
+Prefer extracting the part where **a mistake is expensive**, not the part that is longest.
+`drf_foundation.accounts` is the reference: the token mechanics moved up (identical in both
+consumers, and a bug there hands away an account), the view bodies stayed down (Turnstile,
+invite tokens, audit verbs, notification kinds, mail templates — one product decision per
+line).
+
+**Gate 2 — converge first, extract second, never in one step.** When two implementations
+differ because the projects are on different stacks, the extraction is blocked behind a
+*migration*, and that migration is its own change with its own verification. Decide it on
+its own merits, ship it, then come back.
+
+Never sequence it as extract-then-hope-the-other-one-bends. That is what "we'll do the
+other project later" always turns into.
+
+**Gate 3 — one module, one tag, both consumers adopt before the next extraction starts.**
+Extraction batches rot. A proposal that sits accumulates drift in three places at once —
+the two consumers and the package — until it describes a world that no longer exists and
+has to be rewritten or thrown away.
+
+If both consumers cannot adopt within the same working session, the batch is too big.
+Split it.
+
+**Gate 4 — coverage travels with the code, in the shape the consumer runs it.** The
+package's tests are the only tests that will ever cover the package. A consumer's suite
+exercises the consumer's call in the consumer's execution mode, and silently skips every
+other mode the package supports.
+
+So: if a module can be called from an async view, it needs an async test *here*. If it has
+a sync branch and an async branch, both get covered here, because no consumer will cover
+the branch it doesn't take. The failure mode is not "a test is missing" — it is "an
+execution mode is missing", which is the §11b silent-killer shape applied to package code.
+
+**Gate 5 — a version bump is its own commit, with nothing else in it.** Regenerated types,
+doc re-syncs, and the migration onto the new module are separate commits. A bump carrying
+four other things cannot be reverted without reverting them too, and the revert always
+happens under time pressure.
+
+Corollary: the release tag is coarse. There is no way to roll back one module out of a
+release; you roll back to the previous tag and give up everything in between. That is the
+real cost of a bad release, and it is why Gate 4 is not optional.
+
+### 17b. The worked example: two failed auth extractions
+
+Kept because the reasoning is what generalizes, and because this exact proposal came back a
+second time.
+
+`extract-auth-glue-to-foundation` was drafted at 22 tasks and never started. It sat long
+enough that the package grew several of its items by other routes (`drf_foundation.auth`
+took the JWT response contract; `email_provider.ResendProvider` took Resend), so the first
+rewrite was against a world that no longer existed — Gate 3.
+
+That rewrite shrank it to "the three things that survive." Checked against the second
+consumer, two of the three did not survive either:
+
+- `SessionAuthentication401` — proposed as shared, on the assumption both projects answered
+  403 for a dead session. Only one did. The other's first authenticator returns `Bearer`
+  from `authenticate_header()`, and DRF takes the status from the first authenticator, so it
+  already answered 401. Verified against both live APIs. Single consumer — Gate 0.
+- A Resend `EMAIL_BACKEND` → `email_provider` swap — not the same shape at all. A Django
+  `EMAIL_BACKEND` is what routes a *framework's* mail through a provider; `email_provider`
+  is something you call yourself behind your own send choke point. Different callers,
+  different objects — Gate 1.
+
+With the allauth glue already ruled out as single-consumer, *nothing in the change was
+shared*, and it was deleted rather than shrunk a third time.
+
+What eventually shipped went the other way round, in the order the gates prescribe: one
+project dropped allauth and dj-rest-auth for plain DRF views first (Gate 2 — a migration on
+its own merits), which made the two stacks agree; only then did the token mechanics the two
+projects now had in common move into `drf_foundation.accounts` (Gate 1 — the intersection),
+one module, one tag, both consumers on it the same day (Gate 3).
+
+### 17c. Write exclusions as gate failures, not as lifts
+
+The package's "what this deliberately does NOT cover" list (`python/README.md`) is
+load-bearing, not documentation garnish — it is the only thing standing between a future
+proposal and a re-attempt at something already ruled out.
+
+An exclusion phrased as effort ("a much heavier lift to share") reads as *not yet*, and
+invites the re-attempt. An exclusion phrased as a gate failure closes the question until
+the world changes. Write them in the form **"there is nothing shared to extract until X"**,
+and name the X — then a proposal to extract it has to argue that X happened.
