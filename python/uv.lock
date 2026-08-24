@@ -239,7 +239,7 @@ wheels = [
 
 [[package]]
 name = "django-drf-foundation"
-version = "0.17.0"
+version = "0.17.1"
 source = { editable = "." }
 dependencies = [
     { name = "dj-database-url" },
