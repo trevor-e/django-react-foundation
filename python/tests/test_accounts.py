@@ -5,7 +5,6 @@ resolves to the wrong user, a token that outlives its expiry, a preview that spe
 link it was only meant to inspect, a token minted for one purpose accepted by another.
 """
 
-
 import pytest
 from django.contrib.auth import get_user_model
 
@@ -117,3 +116,57 @@ def test_a_deleted_user_denies(user):
     user.delete()
 
     assert VERIFY.load(User, token) is None
+
+
+# --- primary key types -------------------------------------------------------
+
+
+def test_a_uuid_primary_key_round_trips(monkeypatch):
+    """A UUID pk is as common as an integer one, and the payload is JSON — so the token
+    has to carry a string, not the key object. Found by the second consumer, whose User
+    is UUID-keyed; the first one's is an int and never exercised this."""
+    import uuid as uuidlib
+
+    class FakeManager:
+        def __init__(self, obj):
+            self._obj = obj
+
+        def get(self, pk):
+            if str(pk) != str(self._obj.pk):
+                raise FakeUser.DoesNotExist
+            return self._obj
+
+    class FakeUser:
+        class DoesNotExist(Exception):
+            pass
+
+        def __init__(self):
+            self.pk = uuidlib.uuid4()
+
+    obj = FakeUser()
+    FakeUser._default_manager = FakeManager(obj)
+
+    token = VERIFY.make(obj)
+    assert VERIFY.load(FakeUser, token) is obj
+
+
+def test_a_payload_that_is_not_a_valid_key_denies():
+    """A well-formed token whose payload cannot be a pk must deny, not raise — a UUID
+    field raises ValidationError rather than ValueError for that."""
+
+    class FakeUser:
+        class DoesNotExist(Exception):
+            pass
+
+    class Raising:
+        def get(self, pk):
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError("badly formed UUID")
+
+    FakeUser._default_manager = Raising()
+
+    class Obj:
+        pk = "not-a-uuid"
+
+    assert VERIFY.load(FakeUser, VERIFY.make(Obj())) is None

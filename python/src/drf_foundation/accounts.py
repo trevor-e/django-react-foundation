@@ -23,6 +23,7 @@ from typing import Any
 
 from django.contrib.auth.tokens import PasswordResetTokenGenerator, default_token_generator
 from django.core import signing
+from django.core.exceptions import ValidationError
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 
@@ -84,7 +85,11 @@ class SignedUserToken:
     max_age_seconds: int
 
     def make(self, user: Any) -> str:
-        return signing.dumps({"user_id": user.pk}, salt=self.salt)
+        # ``str(pk)``, not the pk itself: the payload is JSON, and a UUID primary key —
+        # as common as an integer one — is not JSON-serializable. Stringifying here
+        # rather than at the call site keeps the token shape identical whatever the
+        # project's key type is, and the ORM coerces the string back on lookup.
+        return signing.dumps({"user_id": str(user.pk)}, salt=self.salt)
 
     def load(self, user_model: type, token: str) -> Any | None:
         """The user this token was issued for, or ``None`` on any failure.
@@ -104,5 +109,7 @@ class SignedUserToken:
             return None
         try:
             return user_model._default_manager.get(pk=user_id)
-        except (TypeError, ValueError, user_model.DoesNotExist):
+        except (TypeError, ValueError, ValidationError, user_model.DoesNotExist):
+            # ValidationError is what a UUID field raises for a well-formed token whose
+            # payload is not a UUID — deny, rather than 500 on a hand-crafted request.
             return None
