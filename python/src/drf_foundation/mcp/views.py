@@ -28,7 +28,7 @@ from django.views.decorators.http import require_http_methods
 from rest_framework.throttling import SimpleRateThrottle
 
 from drf_foundation.mcp.api_keys import AbstractApiKey, TokenCodec, bearer_token, resolve_token
-from drf_foundation.mcp.protocol import McpServer, handle_post
+from drf_foundation.mcp.protocol import INVALID_REQUEST, McpServer, _error, handle_post
 
 
 def _cors[R: HttpResponse](response: R) -> R:
@@ -37,8 +37,16 @@ def _cors[R: HttpResponse](response: R) -> R:
     response["Access-Control-Allow-Headers"] = (
         "Authorization, Content-Type, MCP-Protocol-Version, Mcp-Session-Id"
     )
-    response["Access-Control-Expose-Headers"] = "WWW-Authenticate"
+    response["Access-Control-Expose-Headers"] = (
+        "WWW-Authenticate, Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset"
+    )
     response["Access-Control-Max-Age"] = "86400"
+    return response
+
+
+def _stamp[R: HttpResponse](response: R, headers: dict[str, str]) -> R:
+    for name, value in headers.items():
+        response[name] = value
     return response
 
 
@@ -71,6 +79,25 @@ class KeyRateThrottle(SimpleRateThrottle):
         """
         return self.allow_request(None, None)  # type: ignore[arg-type]
 
+    def headers(self) -> dict[str, str]:
+        """``X-RateLimit-*`` describing this key's bucket, after :meth:`allows`.
+
+        An agent that can read its remaining budget paces itself; one that cannot
+        finds the limit by hitting it, and a 429 mid-conversation is indistinguishable
+        from the tool being broken. That is why these ride *every* response, not just
+        the 429 — by then it is too late to be useful.
+
+        ``allow_request`` leaves ``history`` holding this request on success and a
+        full window on refusal, so ``len(history)`` is the count either way and the
+        oldest entry is when a slot next frees.
+        """
+        oldest = self.history[-1] if self.history else self.now
+        return {
+            "X-RateLimit-Limit": str(self.num_requests),
+            "X-RateLimit-Remaining": str(max(0, self.num_requests - len(self.history))),
+            "X-RateLimit-Reset": str(int(oldest + self.duration)),
+        }
+
 
 def mcp_endpoint(
     *,
@@ -84,6 +111,7 @@ def mcp_endpoint(
     select_related: tuple[str, ...] = (),
     refuse: Callable[[Any], str | None] | None = None,
     throttle_scope: str | None = None,
+    max_body_bytes: int | None = None,
 ) -> Callable[[HttpRequest], HttpResponse]:
     """Build the ``/mcp`` view.
 
@@ -96,7 +124,13 @@ def mcp_endpoint(
     usual case is a deactivated account, which the key itself knows nothing about.
 
     ``throttle_scope`` names a ``DEFAULT_THROTTLE_RATES`` entry; omit it for no
-    per-key limit.
+    per-key limit. When set, every response carries ``X-RateLimit-*`` so a client
+    can pace itself rather than discover the ceiling by hitting it.
+
+    ``max_body_bytes`` caps the request body. A tools-only JSON-RPC call is small,
+    and without a ceiling an unauthenticated-shaped request still costs a full read
+    into memory before the token is even checked. ``None`` disables the cap, which
+    leaves ``DATA_UPLOAD_MAX_MEMORY_SIZE`` as the only backstop.
     """
 
     def resolve_server() -> McpServer:
@@ -127,9 +161,13 @@ def mcp_endpoint(
             if reason:
                 return unauthorized(reason)
 
-        if throttle_scope is not None and not KeyRateThrottle(key, throttle_scope).allows():
-            return _cors(
-                JsonResponse(
+        budget: dict[str, str] = {}
+        if throttle_scope is not None:
+            throttle = KeyRateThrottle(key, throttle_scope)
+            allowed = throttle.allows()
+            budget = throttle.headers()
+            if not allowed:
+                response = JsonResponse(
                     {
                         "error": "rate_limited",
                         "error_description": (
@@ -138,17 +176,38 @@ def mcp_endpoint(
                     },
                     status=429,
                 )
+                wait = throttle.wait()
+                if wait is not None:
+                    response["Retry-After"] = str(int(wait) + 1)
+                return _cors(_stamp(response, budget))
+
+        raw = request.body
+        if max_body_bytes is not None and len(raw) > max_body_bytes:
+            # A JSON-RPC envelope, not a bare 413 body: the caller is an MCP client,
+            # and an unparseable response reads to it as the server being broken.
+            return _cors(
+                _stamp(
+                    JsonResponse(
+                        _error(None, INVALID_REQUEST, "Request body too large."), status=413
+                    ),
+                    budget,
+                )
             )
 
         status, body = handle_post(
             resolve_server(),
             context(key),
-            request.body,
+            raw,
             request.headers.get("MCP-Protocol-Version"),
         )
         if body is None:
-            return _cors(HttpResponse(status=status))
-        return _cors(HttpResponse(json.dumps(body), status=status, content_type="application/json"))
+            return _cors(_stamp(HttpResponse(status=status), budget))
+        return _cors(
+            _stamp(
+                HttpResponse(json.dumps(body), status=status, content_type="application/json"),
+                budget,
+            )
+        )
 
     view.__name__ = "mcp_endpoint"
     view.__doc__ = f"MCP streamable-HTTP endpoint (mounted at {mcp_path})."

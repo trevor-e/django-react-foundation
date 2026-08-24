@@ -203,3 +203,81 @@ def test_one_keys_limit_does_not_affect_another(client, throttle_rate):
     assert rpc(client, first, "ping").status_code == 200
     assert rpc(client, first, "ping").status_code == 429
     assert rpc(client, second, "ping").status_code == 200
+
+
+def test_the_budget_rides_every_response(client, throttle_rate):
+    """Not just the 429. A client that only learns its ceiling by hitting it cannot
+    pace itself, and the 429 arrives mid-conversation where it reads as a broken tool."""
+    throttle_rate("10/min")
+    secret, _ = mint()
+
+    response = rpc(client, secret, "ping")
+
+    assert response.status_code == 200
+    assert response["X-RateLimit-Limit"] == "10"
+    assert response["X-RateLimit-Remaining"] == "9"
+    assert int(response["X-RateLimit-Reset"]) > 0
+
+
+def test_the_budget_counts_down(client, throttle_rate):
+    throttle_rate("10/min")
+    secret, _ = mint()
+
+    remaining = [rpc(client, secret, "ping")["X-RateLimit-Remaining"] for _ in range(3)]
+
+    assert remaining == ["9", "8", "7"]
+
+
+def test_a_throttled_response_says_when_to_retry(client, throttle_rate):
+    throttle_rate("1/min")
+    secret, _ = mint()
+    rpc(client, secret, "ping")
+
+    limited = rpc(client, secret, "ping")
+
+    assert limited.status_code == 429
+    assert limited["X-RateLimit-Remaining"] == "0"
+    assert 0 < int(limited["Retry-After"]) <= 61
+
+
+def test_the_budget_is_readable_cross_origin(client, throttle_rate):
+    """A browser-based MCP client sees no header it cannot read — the endpoint is
+    wildcard-CORS, so anything useful has to be named in Expose-Headers."""
+    throttle_rate("10/min")
+    secret, _ = mint()
+
+    exposed = rpc(client, secret, "ping")["Access-Control-Expose-Headers"]
+
+    for header in ("X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"):
+        assert header in exposed
+
+
+# --- body size ---------------------------------------------------------------
+
+
+def test_an_oversized_body_is_refused(client):
+    """413, but as a JSON-RPC envelope: the caller is an MCP client, and a body it
+    cannot parse is indistinguishable from the server being broken."""
+    secret, _ = mint()
+    padding = "x" * 4096
+
+    response = client.post(
+        ENDPOINT,
+        data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {"pad": padding}}),
+        content_type="application/json",
+        HTTP_AUTHORIZATION=f"Bearer {secret}",
+    )
+
+    assert response.status_code == 413
+    body = response.json()
+    assert body["jsonrpc"] == "2.0"
+    assert body["error"]["code"] == -32600
+    assert "too large" in body["error"]["message"].lower()
+
+
+def test_a_body_under_the_cap_is_fine(client):
+    secret, _ = mint()
+
+    response = rpc(client, secret, "ping", {"pad": "x" * 512})
+
+    assert response.status_code == 200

@@ -224,4 +224,6 @@ TEST_ENDPOINT = mcp_endpoint(
     select_related=("account",),
     refuse=_refuse,
     throttle_scope="mcp-key",
+    # Small enough that a test can exceed it, far above any real JSON-RPC call.
+    max_body_bytes=2048,
 )
