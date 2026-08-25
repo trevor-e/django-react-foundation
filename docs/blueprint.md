@@ -425,6 +425,51 @@ level, so it can't express `django.core.mail`; that's why the two tools split th
 
 ---
 
+### 8c. Ban the API the foundation supersedes
+
+§8b puts each external SDK behind a seam and enforces it with ruff's `banned-api`. The same
+mechanism does a second job: **stopping a project from reaching for the stock API that a
+foundation module exists to replace.**
+
+Each entry should be a bug that already happened, with the reason in the message — a ban
+whose rationale lives only in someone's memory gets deleted the first time it is
+inconvenient:
+
+```toml
+# backend/pyproject.toml — needs "TID" in [tool.ruff.lint] select
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"rest_framework.throttling.AnonRateThrottle".msg = "AnonRateThrottle.get_cache_key returns None for an authenticated request, so the throttle stops applying once the caller has a session. Use drf_foundation.throttling.IpKeyedThrottle."
+```
+
+`banned-api` matches dotted paths, so it bans the one member without touching its
+neighbours — `SimpleRateThrottle` and `UserRateThrottle` from the same module stay
+available.
+
+The frontend equivalent is `no-restricted-syntax`, because the thing worth banning there is
+usually a *call*, not an import. Both consumers keep session-mutating calls behind the
+mutations that invalidate the cached session, and the rule says so with the one legitimate
+home exempted:
+
+```js
+// eslint.config.js
+'no-restricted-syntax': ['error', {
+  selector: "MemberExpression[object.name='authService'][property.name=/^(login|register)$/]",
+  message: 'Use useLogin()/useRegister() — they invalidate the cached session.',
+}],
+// ...then a second config block turning it off for src/hooks/useApi.ts
+```
+
+**Scope the ban to what actually breaks.** Banning `authService` wholesale would have
+flagged four recovery-flow pages that are entirely correct, because verifying an email or
+requesting a reset does not change session state. A rule that cries wolf gets switched off,
+and then it protects nothing.
+
+**Verify a new ban fires before trusting it.** Add a file that violates it, confirm the
+error, delete the file. A `banned-api` entry with a typo in the path is silent, and silence
+reads exactly like compliance.
+
+---
+
 ## 9. Makefile is the front door
 
 One memorable command per task; everyone (and every agent) uses these, not raw
