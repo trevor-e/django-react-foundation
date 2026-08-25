@@ -1,14 +1,25 @@
 """Session-cookie auth wire contract for browser clients (no extra dependencies).
 
-The alternative to :mod:`drf_foundation.auth`'s JWT pair. Pick one per project:
+This package's only auth flavour, and the right one when the browser client is a
+first-party SPA on the same site as the API. The credential is Django's ``sessionid``
+cookie: ``HttpOnly``, so page JavaScript cannot read (or leak) it, with revocation as a
+session-row delete. It costs CSRF handling, which DRF's ``SessionAuthentication``
+enforces for you, and it rules out cross-*site* frontends, which never receive the
+cookie.
 
-- **This module** when the only browser client is a first-party SPA on the same site as
-  the API. The credential is Django's ``sessionid`` cookie: ``HttpOnly``, so page
-  JavaScript cannot read (or leak) it, with revocation as a session-row delete. Costs
-  CSRF handling, which DRF's ``SessionAuthentication`` enforces for you, and rules out
-  cross-*site* frontends, which never receive the cookie.
-- :mod:`drf_foundation.auth` (JWT) when clients are cross-site, native, or otherwise
-  cannot rely on cookies.
+A ``drf_foundation.auth`` module used to ship a simplejwt pair for that cross-site case.
+It was removed once both consumers moved to cookies and it had no importers left. The
+frontend package still supports JWT mode in its apiClient, so a cross-site or native
+client remains possible — it brings its own backend views rather than importing them
+from here.
+
+**Status-code gotcha, worth knowing before you wire this up.** DRF takes the status for
+an unauthenticated request from the *first* entry in ``DEFAULT_AUTHENTICATION_CLASSES``,
+via that authenticator's ``authenticate_header()``. Stock ``SessionAuthentication``
+returns ``None`` there, so a session-only stack answers ``403``, not ``401`` — and an SPA
+that keys "signed out" on 401 will keep rendering as though the user were logged in. Lead
+the list with a header authenticator (an API-key or token class) and 401 comes for free;
+otherwise subclass ``SessionAuthentication`` and override ``authenticate_header``.
 
 Wire it up::
 

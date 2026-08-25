@@ -1,11 +1,11 @@
-"""Project auth surface. Login/refresh/logout come straight from the package
-(`drf_foundation.auth` — the apiClient wire contract); this module owns what every
-project customizes: registration and the `/api/me` shape."""
+"""Project auth surface. Login/logout/CSRF come straight from the package
+(`drf_foundation.session_auth` — the apiClient's session-mode wire contract); this module
+owns what every project customizes: registration and the `/api/me` shape."""
 
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
-from drf_foundation.auth import tokens_for_user
 from drf_foundation.permissions import public_endpoint
+from drf_foundation.session_auth import start_session
 from drf_foundation.schemas import err, ok, parse, respond
 from drf_foundation.throttling import RegisterRateThrottle
 from rest_framework import status as http_status
@@ -32,7 +32,9 @@ def register(request: Request) -> Response:
     except DjangoValidationError as exc:
         return err(" ".join(exc.messages), status=http_status.HTTP_400_BAD_REQUEST)
     user = User.objects.create_user(email=data.email, password=data.password)
-    return respond(tokens_for_user(user), status=http_status.HTTP_201_CREATED)
+    # Signing up signs you in, so the client needs no follow-up login call. The response
+    # carries the post-rotation CSRF token for the new session.
+    return respond(start_session(request, user), status=http_status.HTTP_201_CREATED)
 
 
 @api_view(["GET", "PATCH"])

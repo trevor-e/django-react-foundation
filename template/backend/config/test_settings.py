@@ -40,6 +40,7 @@ REST_FRAMEWORK = {
         "user": None,
         "auth-login": None,
         "auth-register": None,
+        "auth-csrf": None,
         "token-user": None,
     },
 }

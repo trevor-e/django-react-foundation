@@ -16,7 +16,7 @@ from drf_foundation.settings_helpers import (
     pooled_database,
     production_security_settings,
     redis_cache,
-    simple_jwt_defaults,
+    session_auth_settings,
 )
 
 from config.env import is_production
@@ -41,8 +41,6 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
-    "rest_framework_simplejwt",
-    "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "drf_foundation",
     "accounts",
@@ -127,8 +125,13 @@ CACHES = {"default": redis_cache()}
 # auth endpoints (the package's throttles carry the auth-* scopes).
 REST_FRAMEWORK: dict[str, object] = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    # Session cookie for the browser. NOTE: with only this authenticator, an
+    # unauthenticated request answers 403 rather than 401 — DRF takes the status from the
+    # first authenticator's `authenticate_header()`, and stock SessionAuthentication
+    # returns None there. Lead this list with a header authenticator (an API-key or token
+    # class) if you add one, and 401 comes for free.
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
     ],
     "EXCEPTION_HANDLER": "drf_foundation.schemas.api_exception_handler",
     "DEFAULT_THROTTLE_CLASSES": [
@@ -140,6 +143,10 @@ REST_FRAMEWORK: dict[str, object] = {
         "user": "300/min",
         "auth-login": "10/min",
         "auth-register": "10/hour",
+        # CsrfBootstrapRateThrottle's scope. Generous — a legitimate client fetches one
+        # per page load and again after each session rotation — but bounded, because
+        # under CSRF_USE_SESSIONS each call from a sessionless caller writes a session row.
+        "auth-csrf": "60/min",
         "token-user": "120/min",
     },
 }
@@ -152,8 +159,10 @@ if is_production():
 WIRE_SCHEMA_OUTPUT = BASE_DIR.parent / "frontend" / "src" / "types" / "api-schema.json"
 WIRE_SCHEMA_TITLE = "__PROJECT__ API"
 
-# Rotating refresh tokens + blacklist, matching the apiClient contract.
-SIMPLE_JWT = simple_jwt_defaults()
+# Session-cookie auth, matching the apiClient's session mode. Sets CSRF_USE_SESSIONS, so
+# the CSRF secret lives in the session and no CSRF cookie is set — the token reaches the
+# SPA as a response value from /api/auth/csrf instead.
+globals().update(session_auth_settings(cross_origin_spa=True))
 
 # CORS: local dev frontend + prod frontend origin(s), comma-separated (blueprint §14).
 CORS_ALLOWED_ORIGINS = [

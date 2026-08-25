@@ -52,18 +52,20 @@ export async function mockApi(page: Page, routes: Record<string, RouteValue>) {
 }
 
 /**
- * Set the auth tokens a route guard checks. The CT page is already loaded when the
- * test body runs, so set them on the live page (mount renders into that same page
- * without navigating, so the token is present at render time) *and* via an init script
- * in case a component triggers a reload. Call before `mount`.
+ * Set the session hint a route guard checks. Under session-cookie auth there is no
+ * readable credential to fake — the cookie is `HttpOnly` — so what a guard can check on
+ * the client is the hint, and that is what this sets. The CT page is already loaded when
+ * the test body runs, so set it on the live page (mount renders into that same page
+ * without navigating, so it is present at render time) *and* via an init script in case
+ * a component triggers a reload. Call before `mount`.
  */
 export async function loginTestUser(page: Page) {
-  const setTokens = () => {
-    window.localStorage.setItem('auth_token', 'test-access-token')
-    window.localStorage.setItem('refresh_token', 'test-refresh-token')
+  // Matches DEFAULT_SESSION_HINT_KEY in react-vite-foundation.
+  const setHint = () => {
+    window.localStorage.setItem('session_hint', '1')
   }
-  await page.addInitScript(setTokens)
-  await page.evaluate(setTokens)
+  await page.addInitScript(setHint)
+  await page.evaluate(setHint)
 }
 
 /** Capture a specific locator (or the whole page, for portalled dialogs). */
