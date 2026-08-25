@@ -1,8 +1,9 @@
 # django-drf-foundation
 
 Pydantic-inside-DRF wire schemas, deny-by-default permissions, and generated-TS-types
-plumbing for a Django + Django REST Framework API. Extracted from a working production
-app's shared foundation layer.
+plumbing for a Django + Django REST Framework API. Shared by several projects rather than
+owned by any one of them — nothing lands here until a second project can use it (blueprint
+§17).
 
 **The load-bearing idea:** DRF stays the HTTP layer (routing, auth, throttling); Pydantic
 owns the request/response *shapes*, defined once, and a frontend generates its TypeScript
@@ -510,20 +511,34 @@ uv run pytest
   check, an invite token, which audit verb, which mail template. A shared view would need
   an injection point per decision, and configuring it would cost more code than the copy.
 
-  Login *is* covered (`session_auth`, `auth`), because the credential exchange is the
-  same everywhere. The flows around it are not, and the reason is concrete rather than
-  aspirational: the two consumers of this package implement them on stacks that share no
-  code. One hand-rolls plain DRF views over `django.core.signing`; the other uses
-  allauth + dj-rest-auth and does not have those views at all. Extracting either one produces a module the other
-  can never import — allauth would have to become a dependency of a project that
-  deliberately avoids it.
+  Login *is* covered (`session_auth`), because the credential exchange is the same
+  everywhere.
 
-  So this is not "not yet". It is: **there is nothing shared to extract until two
-  projects pick the same stack.** If that ever happens, the hand-rolled one is the
-  candidate, because it drags no third-party auth framework into every consumer. Until
-  then, copy the pattern from a reference project rather than importing it, and do not
-  let a proposal to "finish extracting auth" survive without re-checking that a second
-  consumer could actually use the result.
+  **This exclusion used to rest on a different reason, and that reason has expired.** It
+  said there was nothing to extract "until two projects pick the same stack", because one
+  consumer hand-rolled DRF views while the other ran allauth + dj-rest-auth. That is no
+  longer true: the allauth consumer dropped it and moved onto plain DRF views over
+  `drf_foundation.accounts`. The stated condition was met, so the exclusion was
+  re-examined rather than left standing on a lapsed premise (§17c).
+
+  It still holds, but now on Gate 1 rather than Gate 2 — measured, not assumed. Reading
+  the two `register` bodies side by side, the shared spine is four steps: reject a
+  duplicate email, create the user, send a verification mail, start the session. Wrapping
+  that as a shared view needs an injection point for each of: a bot check (one consumer
+  only), an invite token (one only), an audit verb (one only), a username field (one
+  only), which validators run inline versus in the schema, and whether the response is
+  enveloped or shaped for a legacy client. Six hooks for four shared steps is the
+  trench-coat test failing, not passing.
+
+  The reset flow is closer, and still not worth it: its dangerous half — minting and
+  resolving the token — is *already* extracted and used by both. What remains after
+  `PasswordResetLink.resolve` is `validate_password`, `set_password`, `save`. Three lines
+  of Django stdlib is not a module.
+
+  So: **there is nothing shared to extract until the view bodies stop differing by a
+  product decision per line.** That is now a countable condition — if a future proposal
+  claims otherwise, it should state the injection-point count it is arguing down from
+  six, with the two bodies quoted.
 - **Settings boilerplate** beyond what's listed above (`CONN_MAX_AGE`, `ruff`/type-checker
   config, etc.) — those live in the blueprint doc as copy-paste recipes, not in this package,
   since a settings module isn't meaningfully "importable" the way a schema/permission layer is.

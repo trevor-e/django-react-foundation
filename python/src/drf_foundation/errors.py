@@ -1,7 +1,6 @@
 """JSON error responses for an API surface served alongside Django HTML.
 
-Two gaps this closes, both found by exercising a real API as an outside consumer
-(promoted from adulting.app):
+Two gaps this closes, both found by exercising a real API as an outside consumer:
 
 - ``Http404`` raised *before* DRF dispatch — a tenancy middleware's cross-tenant
   mismatch, an unregistered path-converter miss, any unmatched route — renders

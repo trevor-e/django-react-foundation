@@ -1,6 +1,6 @@
 """OpenAPI 3.1 document generation from the wire-schema registry + the live URLconf.
 
-Promoted from adulting.app. The package already exports the wire models as JSON Schema
+The package already exports the wire models as JSON Schema
 for frontend typegen (:mod:`drf_foundation.wire_schema`); this is the same source of
 truth aimed at a second consumer — a public API document.
 

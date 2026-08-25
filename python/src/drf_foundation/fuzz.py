@@ -1,6 +1,6 @@
 """Schemathesis config for property-fuzzing the API described by your OpenAPI document.
 
-Promoted from adulting.app. The *harness* (which fixture mints credentials, which path
+The *harness* (which fixture mints credentials, which path
 parameter to pin) is necessarily project-specific; what generalizes — and what took a
 real run to work out — is **which Schemathesis checks to leave on, and why the others
 lie**. That's what this module encodes.

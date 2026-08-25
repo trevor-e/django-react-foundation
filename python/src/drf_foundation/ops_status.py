@@ -1,8 +1,5 @@
 """Infrastructure status collectors for a staff ops dashboard.
 
-Promoted from adulting.app, where the module was written self-contained specifically
-for this extraction.
-
 **The governing property: an authorized request always gets a 200.** Each section is
 collected independently, exception-wrapped, and time-bounded, degrading to
 ``reachable: false`` or explicit ``None`` rather than hanging or 500ing. That's the

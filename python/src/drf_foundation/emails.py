@@ -1,6 +1,6 @@
 """HTML email bodies: one plain-text body and one HTML body per kind.
 
-Promoted from adulting.app. The package already owns the *flows* that send
+The package already owns the *flows* that send
 transactional mail (``drf_foundation.accounts`` mints verification and password-reset
 tokens; ``/auth-ui`` renders their pages) but shipped no bodies for the mail those
 flows send — every project re-derived the same table-layout markup by hand.
@@ -77,7 +77,7 @@ class EmailTheme:
     """Brand and palette for the shared email shell.
 
     ``wordmark``/``wordmark_suffix`` render as one text logo with the suffix tinted in
-    the accent color (``adulting`` + ``.app``). Pass an empty suffix for a single-word
+    the accent color (e.g. ``acme`` + ``.dev``). Pass an empty suffix for a single-word
     brand. ``footer_reason`` is the "why am I getting this" line every compliant
     transactional email carries.
     """

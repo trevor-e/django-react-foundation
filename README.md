@@ -2,8 +2,11 @@
 
 Reusable plumbing for a Django + DRF + React/Vite side project: Pydantic-inside-DRF wire
 schemas, deny-by-default permissions, an auth-aware API client, and the generated-TS-types
-pipeline that ties them together. Extracted from a working production app's shared
-foundation layer.
+pipeline that ties them together.
+
+Shared by several projects rather than owned by any one of them. That is a constraint, not
+a boast: nothing lands here until a second project can actually use it, which is what the
+extraction gates in [`docs/blueprint.md`](docs/blueprint.md) §17 exist to enforce.
 
 See [`docs/blueprint.md`](docs/blueprint.md) for the full stack blueprint this repo's code
 is one piece of — repo layout, testing/CI/deploy conventions, and the spec-driven

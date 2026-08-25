@@ -1,10 +1,10 @@
 """Architecture check: every request-schema scalar is bounded.
 
-Promoted from adulting.app, where a Schemathesis fuzz run proved the failure mode
-(2026-07-25): an unconstrained ``str`` flowing into a bounded ``CharField`` is a
-``DataError`` 500 on long input and silent truncation-or-junk under the limit, and an
-unconstrained ``int`` overflows a 32-bit Postgres column the same way. Both are
-client-triggerable 500s reachable from any request body.
+A Schemathesis fuzz run proved the failure mode (2026-07-25): an unconstrained ``str``
+flowing into a bounded ``CharField`` is a ``DataError`` 500 on long input and silent
+truncation-or-junk under the limit, and an unconstrained ``int`` overflows a 32-bit
+Postgres column the same way. Both are client-triggerable 500s reachable from any request
+body.
 
 Fuzzing *finds* those; this makes the class structurally impossible to reintroduce.
 Walk the request models reachable from your API surface and fail unless

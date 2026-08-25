@@ -1,7 +1,8 @@
 # Django + React side-project blueprint
 
-A distillation of a working production app's patterns into a **repeatable template** for
-future projects — the opinionated stack, the conventions, and the copy-pasteable recipes.
+The shared stack doctrine for the projects built on it — the opinionated stack, the
+conventions, and the copy-pasteable recipes. It started as one app's patterns; it is now the
+common baseline several projects are held to, and §17 governs what is allowed to join it.
 The headline is the **shared wire-schema → frontend types** pipeline, now installable
 directly from this repo's two packages (see the top-level [README](../README.md)) rather
 than copy-pasted; the rest is the supporting scaffolding that makes it pleasant to work in.
