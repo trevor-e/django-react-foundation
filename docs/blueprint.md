@@ -931,3 +931,33 @@ of one.
 
 Same reasoning as §16's OpenSpec skills: the process is exactly as reusable as the code, so
 it belongs in the repo the process is about, not only in one machine's home directory.
+
+### 17e. The adoption report
+
+Gates 3 and 5 are the two that fail quietly. A module gets extracted and the originating
+project never adopts it back; a release lands and a consumer never bumps. Nothing errors,
+nothing goes red — the duplication just sits there, and the fix you shipped never reaches
+the project that needed it.
+
+`scripts/adoption-report.py` asks both questions on demand:
+
+```sh
+scripts/adoption-report.py                # both, human-readable
+scripts/adoption-report.py --exit-code    # non-zero if any consumer is behind
+```
+
+It reports, per package, each consumer's pin against the latest tag — naming the releases
+they have missed and each one's headline commit, so "behind by 3" comes with the reason to
+care. Then it lists every module only one consumer imports, which is the signal that the
+other project may be running a local copy of it.
+
+Two things it deliberately does not do. It does not run in this repo's CI, because CI has
+no checkout of the consumers — it is a local command, run when you are deciding what to
+pick up next. And it does not treat single-consumer as a failure: some of those are built
+ahead of demand, and one (`pytest_plugin`) is a pytest entry point whose fixtures are
+injected rather than imported, so grep cannot see the usage at all. It prints that
+exception rather than pretending the module is dead.
+
+Its module scan reads Python files only. Counting every tracked file reports a module as
+adopted because an archived OpenSpec proposal mentions it by name — which it did, for two
+modules, before that was fixed.
