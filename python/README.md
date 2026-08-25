@@ -21,8 +21,20 @@ uv add "django-drf-foundation @ git+https://github.com/trevor-e/django-react-fou
 
 ## Setup
 
-1. Add `drf_foundation` to `INSTALLED_APPS` (it ships a management command; it has no
-   models/migrations, so nothing else is required):
+1. Add `drf_foundation` to `INSTALLED_APPS`. It owns no data — no `models.py`, no
+   migrations, no tables — but it is a real Django app and two things only work when it is
+   registered:
+
+   - **Management commands**: `export_api_schema`, `export_openapi`,
+     `render_email_previews`. Django discovers commands from installed apps only, so
+     without this the wire-schema pipeline (`gen-api-types`, `check-api-schema`) has no
+     commands to run.
+   - **Templates** under `templates/drf_foundation/` — the email layouts and the MCP
+     consent page — found via `APP_DIRS` template loading.
+
+   Worth knowing because of how it fails: drop it while tidying `INSTALLED_APPS` and
+   nothing complains at boot. It surfaces later as an unknown `manage.py` subcommand or a
+   `TemplateDoesNotExist`, neither of which points back at the edit.
 
    ```python
    INSTALLED_APPS = [
@@ -500,6 +512,31 @@ uv run pytest
   import is lazy, so schedules render and test fine without it.
 
 ## What this package deliberately does NOT cover
+
+- **Concrete models, tables and migrations.** The package ships *field definitions, not
+  tables*: every model here is `abstract = True`, and the consumer subclasses it and owns
+  the migration. That is not caution, it is the only shape that works, and each reason is
+  visible in a consumer today:
+
+  - **The base declares no scope FK, because it cannot know one.** `EventLogEntry` defines
+    `seq`/`event_type`/`payload`/`created_at`; the subclass adds the foreign key the log
+    hangs off, its table name, and the uniqueness constraint over that scope.
+  - **One base, several tables.** pystonks derives `AbstractApiKey` twice —
+    `users.PersonalApiKey` and `mcp_server.McpApiKey`. A shipped concrete model could only
+    ever be one of them.
+  - **Per-project mixins.** adulting's is `ApiKey(PublicIdMixin, AbstractApiKey)`, layering
+    its own id encoding onto the base.
+
+  The cost of the alternative is worse than the duplication it would remove, and there is
+  no duplication left to remove anyway: the fields are already declared exactly once, in
+  the base. Owning tables here would make a package bump a schema migration on every
+  consumer — coupling a library release to a production deploy, and turning the
+  can't-partially-revert problem (blueprint §17 Gate 5) from a code problem into a data
+  one.
+
+  So: **there is nothing to extract until every consumer scopes a given table the same
+  way and needs exactly one of it.** If that day comes, the migration for the projects
+  already holding live rows is the real cost to price, not the model definition.
 
 - **The user model** — `AUTH_USER_MODEL` cannot be swapped after a project's first
   migration, and every real one mixes generic auth fields with product fields. An
