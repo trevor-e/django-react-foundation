@@ -50,11 +50,17 @@ from django.db import models
 
 
 class AbstractOAuthClient(models.Model):
-    """A dynamically registered OAuth client (RFC 7591).
+    """An OAuth client — dynamically registered (RFC 7591) or a CIMD identity.
 
     Public clients only — no secret is ever issued, so possession of a
     ``client_id`` grants nothing without a user completing consent. That is what
     makes open registration safe: a row here is an announcement, not a capability.
+
+    Two kinds of row share the table: dynamic registration creates one per
+    register call (``client_id`` is an opaque prefixed token), and a CIMD client
+    gets one row per *identity*, keyed on its URL, upserted when a consent is
+    approved. For CIMD rows the stored name and redirect list are a display
+    snapshot — authorization re-reads the published document, never this row.
     """
 
     # Projects declare their own primary key (UUIDv7, bigint, whatever). The bare
@@ -62,7 +68,9 @@ class AbstractOAuthClient(models.Model):
     # here and then calling a subclass's UUID pk an inconsistent override.
     id: Any
 
-    client_id = models.CharField(max_length=64, unique=True)
+    # Long enough for a CIMD identity, where the client_id IS a URL
+    # (drf_foundation.mcp.cimd caps them at the same 500).
+    client_id = models.CharField(max_length=500, unique=True)
     name = models.CharField(max_length=100)
     redirect_uris = models.JSONField(default=list)
     created_at = models.DateTimeField(auto_now_add=True)

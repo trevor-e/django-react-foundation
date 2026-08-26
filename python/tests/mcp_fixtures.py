@@ -127,12 +127,33 @@ class SingleTenantProvider(_MintMixin):
             self.revoke(key, reason="reconnected")
 
 
+# --- CIMD fake fetch ----------------------------------------------------------
+#
+# The seam replaces only the network fetch: tests seed raw documents here, and
+# the package still runs its own validation over whatever comes back. The real
+# guarded fetcher is unit-tested separately in test_mcp_cimd.py.
+
+CIMD_DOCUMENTS: dict[str, Any] = {}
+CIMD_FETCHES: list[str] = []
+
+
+def fake_cimd_fetch(url: str) -> dict[str, Any]:
+    from drf_foundation.mcp.cimd import CimdError
+
+    CIMD_FETCHES.append(url)
+    try:
+        return CIMD_DOCUMENTS[url]
+    except KeyError:
+        raise CimdError("The app's metadata document could not be fetched.") from None
+
+
 def _config(**overrides: Any) -> OAuthConfig:
     defaults: dict[str, Any] = {
         "issuer": lambda: "https://api.example.test",
         "resource_name": "Example",
         "codec": CODEC,
         "login_url": login_redirect("https://app.example.test"),
+        "cimd_fetch": fake_cimd_fetch,
     }
     return OAuthConfig(**{**defaults, **overrides})
 

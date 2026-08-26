@@ -30,6 +30,7 @@ from drf_foundation.mcp.api_keys import (
     bearer_token,
     resolve_token,
 )
+from drf_foundation.mcp.cimd import CimdClient, CimdError, is_cimd_client_id
 from drf_foundation.mcp.models import (
     AbstractAuthorizationCode,
     AbstractGrant,
@@ -63,6 +64,8 @@ __all__ = [
     "AbstractAuthorizationCode",
     "AbstractGrant",
     "AbstractOAuthClient",
+    "CimdClient",
+    "CimdError",
     "KeyRateThrottle",
     "McpOAuth",
     "McpServer",
@@ -78,6 +81,7 @@ __all__ = [
     "TokenCodec",
     "bearer_token",
     "handle_post",
+    "is_cimd_client_id",
     "login_redirect",
     "mcp_endpoint",
     "permissive_cors",

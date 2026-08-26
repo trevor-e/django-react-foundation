@@ -49,8 +49,14 @@ from the API origin, where a project's frontend assets do not exist.
     <h1>Connect &ldquo;{{ client_name }}&rdquo;</h1>
     <p class="sub">wants access to your{% if resource_name %} {{ resource_name }}{% endif %} account.</p>
     <p class="meta">
+      {% if cimd_origin %}
+      This app is published by <strong>{{ cimd_origin }}</strong> (verified from a
+      document its developer hosts there).
+      {% else %}
       The app named itself &ldquo;{{ client_name }}&rdquo; (names are self-reported, not
-      verified). After you approve, you'll be sent back to
+      verified).
+      {% endif %}
+      After you approve, you'll be sent back to
       <strong>{{ redirect_host }}</strong>{% if loopback_only %} — an app running on your
       own computer{% endif %}.
     </p>

@@ -476,6 +476,29 @@ whatever they say, so refuse to boot on a non-https one:
 issuer_messages(settings.PUBLIC_API_ORIGIN, check_id="myapp.E010")
 ```
 
+### How clients register
+
+Two mechanisms share the `OAuthClient` table, and both are always on:
+
+- **Client ID Metadata Documents (CIMD)** — the MCP spec's preferred mechanism. The
+  `client_id` is an HTTPS URL the client publishes its metadata at;
+  `drf_foundation.mcp.cimd` fetches it through a guarded seam (public addresses only,
+  pinned connection, no redirects, size/time caps, short-TTL cache, a global fetch
+  budget) and validates it. The consent page then shows the URL's **origin** as a
+  verified identity instead of the self-reported-name disclaimer. A row is upserted
+  only when a consent is approved, keyed on the URL — one row per client identity,
+  ever — and it is a display snapshot plus FK anchor: authorization always re-reads
+  the published document. Advertised via `client_id_metadata_document_supported`.
+- **Dynamic client registration (RFC 7591)** — deprecated upstream but kept for
+  clients that don't publish a document. One row per register call, prefixed ids.
+
+Nothing changes in a provider: `mint`/`replace_previous` receive a client row either
+way. Tests fake the fetch with `OAuthConfig.cimd_fetch` — document validation still
+runs in the package, so a fake can't skip the checks.
+
+> Upgrading from ≤0.20: `AbstractOAuthClient.client_id` widened from 64 to 500 chars
+> to hold URL identities — each consumer needs a migration picking that up.
+
 ### The frontend's half
 
 `login_url` sends a signed-out user to your SPA with the authorize URL in `?next=`. The

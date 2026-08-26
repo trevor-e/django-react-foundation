@@ -47,6 +47,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from drf_foundation.mcp.api_keys import TokenCodec
+from drf_foundation.mcp.cimd import CimdClient, CimdError, is_cimd_client_id, resolve_client
 
 CONSENT_SALT = "drf_foundation.mcp.oauth.consent"
 CONSENT_MAX_AGE_SECONDS = 15 * 60
@@ -203,6 +204,10 @@ class OAuthConfig:
     extra_consent_context: Callable[[HttpRequest], dict[str, Any]] = field(
         default_factory=lambda: lambda request: {}
     )
+    # The CIMD fetch seam (drf_foundation.mcp.cimd). ``None`` means the real
+    # guarded fetcher; tests inject a fake that returns the raw document dict —
+    # document validation still runs in the package either way.
+    cimd_fetch: Callable[[str], dict[str, Any]] | None = None
 
 
 # --- helpers -----------------------------------------------------------------
@@ -480,6 +485,7 @@ class McpOAuth:
                 "grant_types_supported": ["authorization_code"],
                 "code_challenge_methods_supported": ["S256"],
                 "token_endpoint_auth_methods_supported": ["none"],
+                "client_id_metadata_document_supported": True,
                 "scopes_supported": self.scope_values,
             }
         )
@@ -546,17 +552,35 @@ class McpOAuth:
             return self._authorize_start(request)
         return self._consent_submit(request)
 
+    def _cimd_client(self, client_id: str) -> CimdClient:
+        return resolve_client(client_id, fetch=self.config.cimd_fetch)
+
     def _authorize_start(self, request: HttpRequest) -> HttpResponse:
         params = request.GET
-        client = self.models.client.objects.filter(client_id=params.get("client_id", "")).first()
-        if client is None:
-            return self._error_page(
-                request,
-                "Unknown app",
-                "This connection request came from an unregistered app.",
-            )
+        client_id = params.get("client_id", "")
+        cimd_client: CimdClient | None = None
+        if is_cimd_client_id(client_id):
+            # A URL-shaped client_id is a CIMD identity, not a row: the document
+            # at the URL is fetched (guarded and cached — see cimd.py) and *it*
+            # names the client and its redirect URIs.
+            try:
+                cimd_client = self._cimd_client(client_id)
+            except CimdError as exc:
+                return self._error_page(request, "Couldn't verify the app", str(exc))
+            client_name = cimd_client.name
+            registered_uris = cimd_client.redirect_uris
+        else:
+            client = self.models.client.objects.filter(client_id=client_id).first()
+            if client is None:
+                return self._error_page(
+                    request,
+                    "Unknown app",
+                    "This connection request came from an unregistered app.",
+                )
+            client_name = client.name
+            registered_uris = client.redirect_uris
         redirect_uri = params.get("redirect_uri", "")
-        if not redirect_uri or not redirect_uri_allowed(redirect_uri, client.redirect_uris):
+        if not redirect_uri or not redirect_uri_allowed(redirect_uri, registered_uris):
             # Never redirect to an unregistered target — render, don't bounce.
             return self._error_page(
                 request,
@@ -592,9 +616,12 @@ class McpOAuth:
             )
 
         context = {
-            "client_name": client.name,
+            "client_name": client_name,
+            # The verifiable half of a CIMD identity — the consent template shows
+            # it instead of the "names are self-reported" disclaimer.
+            "cimd_origin": cimd_client.origin if cimd_client else "",
             "redirect_host": urlsplit(redirect_uri).hostname or redirect_uri,
-            "loopback_only": all(_is_loopback(u) for u in client.redirect_uris),
+            "loopback_only": all(_is_loopback(u) for u in registered_uris),
             "resources": resources,
             "single_resource": len(resources) == 1,
             "scopes": list(self.provider.scopes),
@@ -602,7 +629,7 @@ class McpOAuth:
             "resource_name": self.config.resource_name,
             "payload": signing.dumps(
                 {
-                    "c": client.client_id,
+                    "c": client_id,
                     "r": redirect_uri,
                     "s": state,
                     "ch": code_challenge,
@@ -638,9 +665,27 @@ class McpOAuth:
                 "Expired",
                 "This consent form expired — retry the connection from the app.",
             )
-        client = self.models.client.objects.filter(client_id=payload["c"]).first()
+        client_id = payload["c"]
         redirect_uri = payload["r"]
-        if client is None or not redirect_uri_allowed(redirect_uri, client.redirect_uris):
+        client = None
+        cimd_client: CimdClient | None = None
+        if is_cimd_client_id(client_id):
+            # Re-resolved (cache permitting) rather than trusted from the signed
+            # payload: the signature proves what the consent page displayed, not
+            # that the document still lists this redirect.
+            try:
+                cimd_client = self._cimd_client(client_id)
+            except CimdError as exc:
+                return self._error_page(request, "Couldn't verify the app", str(exc))
+            registered_uris = cimd_client.redirect_uris
+        else:
+            client = self.models.client.objects.filter(client_id=client_id).first()
+            if client is None:
+                return self._error_page(
+                    request, "Unknown app", "This app registration no longer exists."
+                )
+            registered_uris = client.redirect_uris
+        if not redirect_uri_allowed(redirect_uri, registered_uris):
             return self._error_page(
                 request, "Unknown app", "This app registration no longer exists."
             )
@@ -661,6 +706,21 @@ class McpOAuth:
         if scope not in self.scope_values:
             return self._error_page(
                 request, "Invalid scope", "Pick one of the offered access levels."
+            )
+
+        if cimd_client is not None:
+            # The one place a CIMD identity becomes a row: after a real person
+            # approved, so rows are bounded by consents rather than by requests,
+            # and keyed on the URL, so a client is one row forever instead of one
+            # per connection (DCR's failure mode). The stored name and redirect
+            # list are a display snapshot and an FK anchor — authorization always
+            # re-reads the document, never this row.
+            client, _ = self.models.client.objects.update_or_create(
+                client_id=cimd_client.client_id,
+                defaults={
+                    "name": cimd_client.name,
+                    "redirect_uris": cimd_client.redirect_uris,
+                },
             )
 
         code = secrets.token_urlsafe(43)
