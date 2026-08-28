@@ -2,17 +2,22 @@
  * Build-time half of the stale-tab skew guard (`react-vite-foundation/skew`):
  * stamp the build's identity into the bundle and publish it next to it.
  *
- * Node-only — import from `vite.config.ts`, never from app code.
+ * Node-only — import from `vite.config.ts`, never from app code. Shipped as
+ * JavaScript (types in vite.d.ts) unlike the rest of this package's TS source:
+ * Vite bundles the config file itself but leaves bare imports external, so Node
+ * loads this module directly — and Node refuses to strip types under
+ * node_modules (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING).
  */
 import { execSync } from 'node:child_process'
-import type { Plugin } from 'vite'
 
 /**
  * The deployed commit sha, truncated for readability (equality is all that's
  * ever compared): Cloudflare Pages build env → GitHub Actions → local git →
  * `"dev"`.
+ *
+ * @returns {string}
  */
-export function resolveBuildId(): string {
+export function resolveBuildId() {
   const fromEnv = process.env.CF_PAGES_COMMIT_SHA ?? process.env.GITHUB_SHA
   if (fromEnv) return fromEnv.slice(0, 12)
   try {
@@ -29,8 +34,10 @@ export function resolveBuildId(): string {
  * internal artifact must not claim the filename. Remember to serve
  * `/version.json` uncached (e.g. a `_headers` rule `Cache-Control: no-store`
  * on Cloudflare Pages, which picks cache headers by request path).
+ *
+ * @returns {import('vite').Plugin}
  */
-export function buildIdPlugin(): Plugin {
+export function buildIdPlugin() {
   const buildId = resolveBuildId()
   let isSsrBuild = false
   return {
