@@ -7,5 +7,10 @@ staticfiles/
 .artifacts/
 node_modules/
 dist/
+
+# Railway IaC (.railway/railway.ts): the DSL's npm deps, plus the repo-root
+# node_modules symlink `railway config pull` needs for module resolution
+.railway/node_modules/
+/node_modules
 .env
 .DS_Store

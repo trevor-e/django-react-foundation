@@ -137,7 +137,7 @@ repo/
   docs/                     # architecture + ADRs (see §12)
   openspec/                 # spec-driven change proposals (see §16)
   Makefile                  # the workflow front door (see §9)
-  railway.json              # build/deploy config
+  .railway/railway.ts       # Railway infra as code — applied via `railway config`, not read at deploy (§11)
   .github/workflows/        # CI
 ```
 
@@ -499,15 +499,31 @@ true over time.
 
 ## 11. Deploy: git-push, no manual step
 
-- **Backend → Railway**, `railway.json`: `DOCKERFILE` builder, `watchPatterns:
-  ["backend/**", ...]` so frontend-only commits don't redeploy it, and a
-  **`preDeployCommand: uv run python manage.py migrate --noinput`** so migrations run
-  *before* new containers replace old ones (safe rolling deploys).
+- **Backend → Railway**, defined as Infrastructure as Code in **`.railway/railway.ts`**.
+  (`railway.json`/`railway.toml` are deprecated: new services can't opt in at all, and
+  existing files stop being read **2026-12-01** — hard cutoff.) Per backend service:
+  `DOCKERFILE` builder, `watchPatterns: ["backend/**"]` so frontend-only commits don't
+  redeploy it, and — on the **web service only** — `healthcheck: "/api/health"` (§11b)
+  plus a **`preDeployCommand` running `python manage.py migrate --noinput`** so
+  migrations run *before* new containers replace old ones (safe rolling deploys). Keep
+  that command wrapped in its `PROCESS=web` shell gate even though only one service
+  declares it: ungated, a copy-paste onto worker/beat races migrate against one
+  Postgres, and a push carrying a new migration fails the losers' deploys with
+  "relation already exists".
+- **The IaC file is not read at deploy time** — that's the semantic flip from
+  `railway.json`. It mirrors platform state, and edits reach Railway only via
+  `railway config plan` (preview, safe) → `railway config apply`, from a linked
+  checkout with the `railway` npm package installed in `.railway/` (`railway config
+  pull`, which imports an existing project, additionally needs a repo-root
+  `node_modules` symlink to `.railway/node_modules`). **Omit means delete**: the file
+  is the full desired state for the project, so every service and variable it owns
+  stays declared; secrets render as `preserve()` — "keep the value already set in
+  Railway" — and never land in source.
 - **Dockerfile installs via `uv sync`** (pyproject + uv.lock) — the lockfile is the source
   of truth (don't rely on a stale `requirements.txt`).
 - **`entrypoint.sh` dispatches on a `PROCESS` env var** (`web`/`worker`/`beat`) so the
   same image runs every role; only `web` collects static; roles do **not** migrate on boot
-  (the platform pre-deploy does).
+  (the pre-deploy in `.railway/railway.ts` does).
 - **Frontend → Cloudflare Pages**, auto-built from the same repo, calls the backend at a
   custom `api.` domain. Its build is `tsc && vite build` (not lint), so a clean build is
   what gates the deploy.
@@ -547,7 +563,9 @@ streaming views are written async. Hard-won flag rules:
 
 ### 11b. Deploy healthchecks: worth it, and three silent killers
 
-Set the platform healthcheck (Railway: `healthcheckPath=/api/health`) so a deploy that
+Set the platform healthcheck (Railway: `healthcheck: "/api/health"` in
+`.railway/railway.ts`, on the **web service only** — worker/beat expose no port, so a
+healthcheck on them fails their deploys) so a deploy that
 can't serve **never takes traffic** — without it, "container started" counts as
 success, every deploy has a 502 cutover window, and a crash-looping build replaces a
 working one. But the probe fails *silently* three ways; wire all three before
@@ -739,7 +757,7 @@ scripts/new-project.sh <name> <target-dir>
 stamps out `template/` — a complete working project: ASGI serving (§11a) with every
 hard-won granian flag, pooled DB (§1b), healthcheck-safe security headers (§11b),
 email-login auth matching the apiClient contract, wire-schema pipeline (§3), fail-closed
-prod checks, Makefile/dev-stack scripts, CI, Dockerfile + railway.json. `make install`,
+prod checks, Makefile/dev-stack scripts, CI, Dockerfile + `.railway/railway.ts`. `make install`,
 `make dev`, `make test` work immediately; the stamped README carries the once-per-project
 deploy checklist. The template pins both foundation packages; bump the pins to adopt
 fixes.
@@ -760,10 +778,12 @@ The original by-hand checklist, kept for understanding what the template gives y
    file-copying.
 7. `Makefile` with the targets in §9 (including `gen-api-types` / `check-api-schema`).
 8. CI: tests + lint + schema-drift.
-9. `Dockerfile` (`uv sync`) + `railway.json` (`watchPatterns`, pre-deploy migrate) +
-   `entrypoint.sh` (`PROCESS` roles) — **copy `templates/entrypoint.sh` from this repo**;
-   its granian/celery flags encode §11a's hard-won rules. Then wire §11b's healthcheck
-   (ALLOWED_HOSTS probe host, redirect exemption) before enabling it.
+9. `Dockerfile` (`uv sync`) + `.railway/railway.ts` (§11: `watchPatterns`, web-gated
+   pre-deploy migrate, healthcheck on web only) + `entrypoint.sh` (`PROCESS` roles) —
+   **copy `template/.railway/railway.ts` and `template/backend/entrypoint.sh` from this
+   repo**; the entrypoint's granian/celery flags encode §11a's hard-won rules. Then wire
+   §11b's healthcheck prerequisites (ALLOWED_HOSTS probe host, redirect exemption) before
+   applying it.
 10. Seed `docs/` with an architecture doc + this blueprint, and a `CLAUDE.md` docs table.
 11. `openspec init` (or copy an existing `openspec/` skeleton) + add the CLAUDE.md snippet
     in §16 so change management is spec-driven from day one.

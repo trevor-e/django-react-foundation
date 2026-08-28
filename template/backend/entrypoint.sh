@@ -9,9 +9,9 @@ set -e
 # healthcheck catches a broken web boot, but worker/beat have no healthcheck).
 python manage.py check --fail-level ERROR
 
-# One image, three roles. Migrations run via the platform's pre-deploy command —
-# gated there to the web role so concurrent service deploys can't race migrate —
-# never here on boot.
+# One image, three roles. Migrations run via the backend service's
+# preDeployCommand (.railway/railway.ts) — gated to the web role so concurrent
+# service deploys can't race migrate — never here on boot.
 case "$PROCESS" in
   web)
     python manage.py collectstatic --noinput
