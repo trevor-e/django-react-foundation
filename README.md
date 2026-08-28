@@ -386,3 +386,12 @@ pnpm run typecheck
   into a shared package. One deliberate exception: `/auth-ui`, because auth pages are
   the same shell in every project and the components there are brand-free by
   construction (the consumer passes its wordmark/tagline).
+- **Deploy-skew recovery** (build-id stamp + `version.json` + reload-on-skew, and the
+  Cloudflare Pages boot guard) — evaluated 2026-08-27, Gate 0 failure: only adulting has
+  it (`frontend/src/lib/versionSkew.ts`, `frontend/public/boot-guard.js`, the build-id
+  plugin in its `vite.config.ts`); pystonks has no version stamping, no boot guard, and
+  its `ErrorBoundary.tsx` is an inline widget-catch with a different contract (renders
+  `error.message`, resets in place — not a root deploy-recovery path). There is nothing
+  shared to extract until a second consumer builds deploy recovery of its own on a
+  Pages-style host; then diff the two and move the intersection (the version-probe and
+  boot-guard mechanics look portable; the error screens and their copy are per-product).
