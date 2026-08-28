@@ -28,19 +28,24 @@
     "typescript": "^5.6.0",
     "vitest": "^2.1.0",
     "@radix-ui/themes": "^3.2.0",
-    "@radix-ui/react-icons": "^1.3.2"
+    "@radix-ui/react-icons": "^1.3.2",
+    "react-router-dom": "^7.7.0",
+    "vite": "^7.0.0"
   },
   "exports": {
     ".": "./src/index.ts",
     "./seo": "./src/seo.ts",
     "./prerender": "./src/prerender.ts",
     "./auth-ui": "./src/authUi.tsx",
-    "./theme": "./src/theme.ts"
+    "./theme": "./src/theme.ts",
+    "./skew": "./src/versionSkew.ts",
+    "./vite": "./src/vite.ts"
   },
   "peerDependencies": {
     "react": ">=18",
     "@radix-ui/themes": ">=3",
-    "@radix-ui/react-icons": ">=1"
+    "@radix-ui/react-icons": ">=1",
+    "react-router-dom": ">=7"
   },
   "peerDependenciesMeta": {
     "react": {
@@ -50,6 +55,9 @@
       "optional": true
     },
     "@radix-ui/react-icons": {
+      "optional": true
+    },
+    "react-router-dom": {
       "optional": true
     }
   }

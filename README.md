@@ -366,6 +366,44 @@ single-flight, retries failed pumps on the backoff schedule, and exposes `pump()
 manual catch-up (e.g. after a stale-cursor 409). The store owns the cursor, so a page
 refresh resumes from wherever its snapshot loading left it.
 
+### 9. Stale-tab skew guard (`/skew` + `/vite`)
+
+On this stack a push deploys backend and frontend together and wire changes may break
+compatibility, so a tab left open across a deploy keeps running the old bundle until a
+changed payload crashes it. The guard teaches tabs to notice the newer deploy and reload
+at safe moments — extracted from adulting and pystonks after both carried the same
+implementation (blueprint §17 Gate 0).
+
+```ts
+// vite.config.ts — stamp the build id and emit /version.json (client build only)
+import { buildIdPlugin } from 'react-vite-foundation/vite'
+export default defineConfig({ plugins: [react(), buildIdPlugin()] })
+
+// App wiring — detect on activity, act on navigation; probe on crash
+import { startCrashRecoveryProbe, VersionSkewWatcher } from 'react-vite-foundation/skew'
+
+<ErrorBoundary onError={() => startCrashRecoveryProbe()}> {/* or a fallback's mount effect */}
+  <BrowserRouter>
+    <VersionSkewWatcher />
+    <AppRoutes />
+  </BrowserRouter>
+</ErrorBoundary>
+```
+
+Mechanics (all in `/skew`, unit-tested here): one same-origin `no-store` fetch of
+`/version.json` compares the deployed build id against the bundle's `__BUILD_ID__`;
+activity checks are throttled to one per 15 minutes per tab (route change +
+tab-becomes-visible — never a polling timer); a known-stale tab reloads only at the
+next route change (never mid-view — open forms survive); a crash probes on a bounded
+~2-minute backoff (Railway and Pages race on every push); reloads cap at once per
+distinct deployed build id per tab (`sessionStorage`, never a cookie), so nothing can
+reload-loop. Every failure to fetch or parse the version document reads as "no skew".
+
+Consumer responsibilities: serve `/version.json` uncached (on Cloudflare Pages, a
+`_headers` rule — it picks `Cache-Control` by request *path*); own the error screen the
+crash path falls back to; and keep `/skew` out of code that runs without a router
+(`VersionSkewWatcher` imports `react-router-dom`, an optional peer).
+
 ### Testing
 
 ```bash
@@ -386,12 +424,17 @@ pnpm run typecheck
   into a shared package. One deliberate exception: `/auth-ui`, because auth pages are
   the same shell in every project and the components there are brand-free by
   construction (the consumer passes its wordmark/tagline).
-- **Deploy-skew recovery** (build-id stamp + `version.json` + reload-on-skew, and the
-  Cloudflare Pages boot guard) — evaluated 2026-08-27, Gate 0 failure: only adulting has
-  it (`frontend/src/lib/versionSkew.ts`, `frontend/public/boot-guard.js`, the build-id
-  plugin in its `vite.config.ts`); pystonks has no version stamping, no boot guard, and
-  its `ErrorBoundary.tsx` is an inline widget-catch with a different contract (renders
-  `error.message`, resets in place — not a root deploy-recovery path). There is nothing
-  shared to extract until a second consumer builds deploy recovery of its own on a
-  Pages-style host; then diff the two and move the intersection (the version-probe and
-  boot-guard mechanics look portable; the error screens and their copy are per-product).
+- **The error screen the skew guard falls back to, and the crash catch itself** — the
+  `/skew` module (extracted 2026-08-27 once adulting and pystonks both carried it)
+  deliberately ships mechanics only. The boundary and its fallback UI stayed
+  per-product on Gate 1: adulting uses `Sentry.ErrorBoundary` with a Radix
+  `EmptyState` screen and generic copy; pystonks uses its own class boundary with a
+  shadcn card that shows `error.message` in dev and offers reset-in-place. One
+  product decision per line — sharing them would be hooks wearing a trench coat.
+- **The Cloudflare Pages boot guard** (`boot-guard.js`: recovering a page whose hashed
+  assets were answered with the cached HTML fallback for four hours) — Gate 0: only
+  adulting has it, and its regression story is a real-browser harness
+  (`deploy-window-test.mjs`) that pystonks has no equivalent of. There is nothing
+  shared to extract until a second consumer builds boot-time recovery *and* the
+  harness that keeps it honest; the file is also branded (notice colors, dark-mode
+  class) — expect the eventual split to be template-plus-tokens, not an import.
