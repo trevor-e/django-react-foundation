@@ -106,16 +106,15 @@ be reverted without reverting them too.
 Release tags are prefixed by side: `py-v*` and `js-v*`. Unprefixed `v0.x` tags predate the
 convention and still resolve, but new releases only get prefixed tags.
 
-## No OpenSpec here
+## Kanspec here
 
-Both consumers track non-trivial changes with OpenSpec, and blueprint §16 prescribes it for
-projects on this stack. **This repo does not use it** — there is no `openspec/`, and a change
-here is a commit plus, when it lands in a package, a release. Don't go looking for a
-proposal to apply, and don't add the directory without deciding it is worth the ceremony for
-a two-package library.
+This repo tracks non-trivial changes in `.kanspec/`; blueprint §16 defines the shared
+workflow. For extraction proposals, Kanspec does not replace blueprint §17's admission
+gates: gather the two-consumer evidence first, then propose only if Gates 0–2 pass.
 
-What plays the role a proposal would: blueprint §17's gates for whether something belongs
-here at all, and `python/README.md`'s exclusions list for what has already been ruled out.
+A package change still is not complete until its version is bumped, tagged, released, and
+adopted by both consumers. `python/README.md`'s exclusions remain the record of what has
+already failed the extraction gates.
 
 ## Docs discipline
 
@@ -123,3 +122,22 @@ here at all, and `python/README.md`'s exclusions list for what has already been 
 editing in place. A change here reaches them only when someone re-syncs, so land blueprint
 edits and the consumer re-syncs together. A copy that gets edited locally becomes a fork and
 silently stops receiving what is added here; that already happened once (§12).
+
+<!-- kanspec:begin -->
+## kanspec
+This repo tracks work, specs, and standing rules with kanspec. `kanspec prime` is auto-injected
+at session start; run it yourself if context feels missing.
+- Find work: `kanspec ready --json`. Claim before coding: `kanspec start <id>` (creates branch/worktree).
+- Diff ready: `kanspec ship <id> --pr <n>`. Finish: `kanspec done <id>` — it will gate you; answer its flags.
+- Never state whether something is merged. Merge state is git-detected; report `kanspec show <id>` output.
+- Unsure what you owe, or whether you are stuck: `kanspec status` — every line names its own fix.
+- Review feedback is work, not scrollback: `kanspec comments --unresolved --json` gives
+  {target, quote, body}; answer with `kanspec comment reply <cm-id> --body "..."` and close it
+  with `kanspec comment resolve <cm-id> --note "what changed"`.
+- Standing rules are `kanspec rules` output ONLY. Closed proposals bind nothing — never read
+  .kanspec/proposals/closed/. Never edit an accepted decision; propose one with `kanspec decide`.
+- Out-of-scope work you uncover (>5 min): `kanspec new "..."` — one command; it auto-links
+  discovered_in to your claimed ticket. Park it and keep going; do NOT expand your current ticket.
+  Gotcha learned the hard way: `kanspec quirk add "..." --paths <glob>`.
+- Change state ONLY via kanspec verbs — never hand-edit frontmatter. Workflow details: `kanspec instructions`.
+<!-- kanspec:end -->

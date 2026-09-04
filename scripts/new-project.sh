@@ -13,6 +13,10 @@ fi
 case "$name" in
   *[!a-z0-9-]*) echo "project name must be lowercase letters, digits, hyphens" >&2; exit 2 ;;
 esac
+if ! command -v kanspec >/dev/null 2>&1; then
+  echo "kanspec must be installed and on PATH (from the kanspec repo: cargo install --path .)" >&2
+  exit 2
+fi
 if [ -e "$target" ] && [ -n "$(ls -A "$target" 2>/dev/null)" ]; then
   echo "target '$target' exists and is not empty" >&2
   exit 2
@@ -53,7 +57,18 @@ print("substituted __PROJECT__ ->", name)
 EOF
 
 chmod +x "$target/backend/entrypoint.sh" "$target/scripts/dev.sh" "$target/scripts/devctl.sh"
-(cd "$target" && git init -q && git add -A && git commit -qm "Bootstrap from django-react-foundation template")
+(
+  cd "$target"
+  git init -q
+  git branch -M main
+  git add -A
+  git commit -qm "Bootstrap from django-react-foundation template"
+  kanspec init --main main >/dev/null
+  kanspec setup claude >/dev/null
+  kanspec setup codex >/dev/null
+  git add -A
+  git commit --amend --no-edit -q
+)
 
 cat <<DONE
 
@@ -63,4 +78,5 @@ Next:
   make install
   make dev        # backend :8000, frontend :5173
   make test
+  kanspec status
 DONE

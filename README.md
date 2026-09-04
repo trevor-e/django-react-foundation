@@ -9,9 +9,9 @@ a boast: nothing lands here until a second project can actually use it, which is
 extraction gates in [`docs/blueprint.md`](docs/blueprint.md) §17 exist to enforce.
 
 See [`docs/blueprint.md`](docs/blueprint.md) for the full stack blueprint this repo's code
-is one piece of — repo layout, testing/CI/deploy conventions, and the spec-driven
-(OpenSpec) change-management workflow, all meant to be reused the same way across every
-project, not just this one.
+is one piece of — repo layout, testing/CI/deploy conventions, and the Kanspec-backed
+change-management workflow, all meant to be reused the same way across every project, not
+just this one.
 
 ## New project in one command
 
@@ -20,15 +20,15 @@ scripts/new-project.sh myapp ~/dev/myapp
 ```
 
 stamps out `template/` — a full Django+DRF (ASGI/granian) + React/Vite project wired to
-both packages, with auth, tests, CI, dev-stack tooling, and deploy config. See blueprint
-§15.
+both packages, with auth, tests, CI, dev-stack tooling, deploy config, and an initialized
+Kanspec workspace. It requires `kanspec` on `PATH`. See blueprint §15.
 
 ## Repo layout — two packages, one repo, installed independently
 
 ```
 django-react-foundation/
   docs/blueprint.md    <- the full stack blueprint (not just this repo's code)
-  scripts/              <- reusable tooling (e.g. openspec-mark-tasks.py)
+  scripts/              <- reusable tooling (project bootstrap and adoption checks)
   package.json          <- the JS package (repo root — see "why root" below)
   src/, bin/, tests/
   python/                <- the Python package (a subdirectory)

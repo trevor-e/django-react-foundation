@@ -78,7 +78,7 @@ def imported_modules(consumer: Path) -> set[str]:
     """Which `drf_foundation.<module>` names a consumer's *source* refers to.
 
     Restricted to Python files on purpose. Counting every tracked file reports a module
-    as adopted because an archived OpenSpec proposal or an architecture doc mentions it
+    as adopted because an archived change proposal or an architecture doc mentions it
     by name, which is how this script would have told you adulting used `event_log` and
     `celery_health` when it imports neither.
     """

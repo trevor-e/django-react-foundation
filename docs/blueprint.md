@@ -28,7 +28,7 @@ than copy-pasted; the rest is the supporting scaffolding that makes it pleasant 
 | Frontend | React + TypeScript + Vite | + Tailwind/Radix for UI, TanStack Query for data. |
 | Deploy | Railway (backend) + Cloudflare Pages (frontend) | Git-push auto-deploy on both. |
 | CI | GitHub Actions | tests + lint + **schema-drift guard**. |
-| Change management | **OpenSpec** | Spec-driven proposals for non-trivial changes. See §16. |
+| Change management | **Kanspec** | Proposals, executable tickets, living specs, and standing rules. See §16. |
 
 The load-bearing idea: **DRF stays the HTTP layer; Pydantic owns the data shapes; the
 Pydantic models are the single source of truth that the frontend's TS types are generated
@@ -135,7 +135,9 @@ repo/
     src/lib/api.ts          # client; consumes the generated types + react-vite-foundation
     package.json            # `gen:types` script
   docs/                     # architecture + ADRs (see §12)
-  openspec/                 # spec-driven change proposals (see §16)
+  .kanspec/                 # proposals, tickets, specs, decisions, quirks (see §16)
+  KANSPEC-FEATURES.md       # generated map from living specs
+  KANSPEC-ARCHITECTURE.md   # generated accepted decisions and active quirks
   Makefile                  # the workflow front door (see §9)
   .railway/railway.ts       # Railway infra as code — applied via `railway config`, not read at deploy (§11)
   .github/workflows/        # CI
@@ -785,70 +787,56 @@ The original by-hand checklist, kept for understanding what the template gives y
    §11b's healthcheck prerequisites (ALLOWED_HOSTS probe host, redirect exemption) before
    applying it.
 10. Seed `docs/` with an architecture doc + this blueprint, and a `CLAUDE.md` docs table.
-11. `openspec init` (or copy an existing `openspec/` skeleton) + add the CLAUDE.md snippet
-    in §16 so change management is spec-driven from day one.
+11. Install Kanspec, then run `kanspec init --main main`, `kanspec setup claude`, and
+    `kanspec setup codex` so change management and agent context are wired from day one.
 
 ---
 
-## 16. Spec-driven change management (OpenSpec)
+## 16. Change management (Kanspec)
 
-Track non-trivial changes with [OpenSpec](https://openspec.dev) instead of editing ad hoc:
-`openspec/specs/` holds current-behavior specs, `openspec/changes/` holds in-flight
-proposals (proposal/design/tasks + delta specs, one directory per change).
+Track work and durable engineering knowledge with Kanspec's plain, git-tracked files:
+`.kanspec/proposals/` holds reviewable plans, `.kanspec/tickets/` holds executable work,
+and `.kanspec/specs/`, `decisions/`, and `quirks/` are the only standing rules that keep
+steering agents. `KANSPEC-FEATURES.md` and `KANSPEC-ARCHITECTURE.md` are generated views;
+edit their sources, never the projections.
 
-**Workflow**: propose → apply → archive.
-- **Propose**: draft `proposal.md` (why + what + which capabilities), `design.md` (how,
-  for cross-cutting/risky changes), delta `specs/<capability>/spec.md` files (ADDED/
-  MODIFIED/REMOVED requirements, each with at least one scenario), and `tasks.md` (a
-  checkbox list the apply phase tracks progress against).
-- **Apply**: work through `tasks.md` top to bottom, checking items off as you go. Mark
-  tasks done with a small reviewable script rather than ad hoc edits (see below) — keeps
-  task-state changes auditable instead of one-off `sed`/inline-python edits.
-- **Archive**: once all tasks are done and verified, archive the change — this syncs its
-  delta specs into `openspec/specs/` (the new current-behavior baseline) and moves the
-  change directory out of the active `changes/` list.
+**Bootstrap**: install the binary from the Kanspec checkout with `cargo install --path .`,
+then run `kanspec init --main <integration-branch>`. Run `kanspec setup claude` and/or
+`kanspec setup codex` for the agents used in the repo. Setup installs a small delimited
+context block and repository git hooks; long-form instructions stay in the binary behind
+`kanspec instructions`.
 
-**Use dedicated tools for each phase** (`openspec-propose`, `openspec-apply-change`,
-`openspec-archive-change`, or `openspec-explore` for fuzzy ideas/unfamiliar code before a
-formal proposal, `openspec-sync-specs` to sync specs mid-flight without archiving) rather
-than hand-editing the `openspec/` folders — they encode the schema and task-tracking format
-so it stays consistent across changes and across projects.
+**Non-trivial workflow**: propose → review → approve → implement tickets → close.
 
-**Recommended CLAUDE.md snippet for a new project** (adapt the paragraph break, keep the
-substance):
+- `kanspec propose "Title" --spec <capability>` scaffolds one `proposal.md`. Fill its five
+  sections: Why, Changes (`[cN]`), Testing and verification, typed Prescriptions (`[pN]`),
+  and Tickets (`[tN]`). Kanspec deliberately has no separate design/tasks files, delta
+  specs, SHALL grammar, or scenario ceremony.
+- `kanspec review <p-id>` puts the proposal in review. Read feedback with
+  `kanspec comments <p-id> --unresolved --json`; reply and resolve through `kanspec comment`.
+  `kanspec approve <p-id>` refuses while feedback is unresolved and mints the `[tN]` items
+  as tickets.
+- Claim a ready ticket before coding with `kanspec start <t-id> --worktree`. When the diff
+  is ready, run `kanspec ship <t-id> --pr <n>`. Kanspec records the head SHA itself. After
+  merge, `kanspec scan` derives merge state from git and `kanspec done <t-id>` performs the
+  close-out gate; use the exact follow-up, spec, quirk, and decision flags it requests.
+- Change a living spec on the implementation branch when behavior changes, carrying the
+  proposal provenance token on the rule. Do not wait for proposal close to sync specs.
+- `kanspec close <p-id>` refuses until every change and prescription is dispositioned.
+  Promote durable prescriptions into a spec, decision, or quirk; closed proposal prose
+  binds nothing and must not be used as standing guidance.
 
-```markdown
-## Spec-driven change management (OpenSpec)
+For trivial/mechanical work, a direct `kanspec new "Title" --spec <capability>` ticket is
+enough; it still follows start → ship → scan → done. Use `kanspec status` whenever the next
+owed action is unclear, `kanspec doctor` as the validation gate, and `kanspec rules` to
+audit exactly what agent sessions receive. Add `doctor` to CI once Kanspec has a pinned,
+reproducible install source; while it is installed only from a local work-in-progress
+checkout, run it locally rather than pretending CI can reproduce that binary.
 
-Non-trivial changes are tracked with [OpenSpec](https://openspec.dev) in `openspec/`:
-`openspec/specs/` holds current-behavior specs, `openspec/changes/` holds in-flight
-proposals. Use the `openspec-propose`, `openspec-apply-change`, `openspec-archive-change`
-skills (or `openspec-explore` for fuzzy ideas / unfamiliar code areas) rather than editing
-those folders by hand.
-
-**Default behavior**: for any non-trivial feature or change (not a one-line fix),
-proactively run the propose → apply → archive cycle yourself via those skills before
-implementing — don't wait to be asked. Skip this for trivial/mechanical edits (typo
-fixes, config tweaks, one-liners).
-
-**Mechanics**: the CLI is `npx -y @fission-ai/openspec <cmd>` (no `openspec` binary on
-PATH). Mark tasks done with `scripts/openspec-mark-tasks.py <change> <task-id>... [--undo]`
-(copy from this repo's `scripts/`). Archive with `openspec archive <change> -y` — it also
-syncs delta specs into `openspec/specs/`.
-```
-
-**Mechanics**: the CLI is `npx -y @fission-ai/openspec <cmd>` — no global `openspec` binary
-needed. `scripts/openspec-mark-tasks.py` in this repo flips `- [ ]`/`- [x]` checkboxes in a
-change's `tasks.md` without ad hoc `sed`/inline-python edits; copy it into a new project's
-`scripts/` directory.
-
-**Why this belongs in the blueprint, not just one project's CLAUDE.md**: the propose →
-apply → archive discipline is exactly as reusable as the wire-schema pipeline — it's a
-*process* convention, not project-specific code, and its payoff compounds the same way
-across every project that adopts it. The skill definitions themselves are Claude Code
-skills (installable at `~/.claude/skills/` to be available in every project regardless of
-which repo you're in, or per-project at `.claude/skills/`); this section documents the
-convention so a fresh project's `CLAUDE.md` can adopt the same discipline immediately.
+**Why this belongs in the blueprint, not just one project's agent file**: the review,
+execution, and durable-rule discipline is a reusable process convention, just like the
+wire-schema pipeline. `kanspec setup` keeps the short agent contract current while this
+section explains the convention to humans and to a freshly stamped project.
 
 ---
 
@@ -994,7 +982,7 @@ wrong, and one `rg` would have shown it), and a failed gate *ends* the extractio
 than triggering a re-scope — that re-scope loop is what produced two dead proposals instead
 of one.
 
-Same reasoning as §16's OpenSpec skills: the process is exactly as reusable as the code, so
+Same reasoning as §16's Kanspec workflow: the process is exactly as reusable as the code, so
 it belongs in the repo the process is about, not only in one machine's home directory.
 
 ### 17e. The adoption report
@@ -1024,5 +1012,5 @@ injected rather than imported, so grep cannot see the usage at all. It prints th
 exception rather than pretending the module is dead.
 
 Its module scan reads Python files only. Counting every tracked file reports a module as
-adopted because an archived OpenSpec proposal mentions it by name — which it did, for two
+adopted because an archived change proposal mentions it by name — which it did, for two
 modules, before that was fixed.

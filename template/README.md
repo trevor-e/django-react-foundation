@@ -11,6 +11,7 @@ foundation's two packages. The stack's conventions live in the foundation repo's
 make install       # uv sync + pnpm install
 make dev           # DB/Redis (docker) + migrate + granian + celery + vite
 make test          # backend pytest (dockerized Postgres) + frontend tsc/oxlint
+kanspec status     # work queue and anything waiting on you
 ```
 
 Backend on :8000, frontend on :5173. `make dev-up` / `dev-down` / `dev-status` run the
@@ -30,6 +31,8 @@ same stack backgrounded with logs in `.artifacts/logs/` (agent-friendly).
   Railway infrastructure as code in `.railway/railway.ts` (web-gated pre-deploy
   migrate, `watchPatterns`, healthcheck) — applied via `railway config`, not read
   at deploy time.
+- **Change management** (§16): `.kanspec/` for proposals, tickets, living specs, and
+  standing rules; Claude and Codex context files plus git hooks are initialized.
 
 ## Deploy checklist (once per project)
 
