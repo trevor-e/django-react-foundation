@@ -52,24 +52,23 @@ def pooled_database(
     — so each deploy role (web / worker / beat) can be sized independently via
     platform vars, no code change.
 
-    ``check_on_checkout`` (default on) validates a pooled connection with one cheap
-    round trip before handing it to a request, so a connection the server closed
-    while it sat idle — a database restart, a failover, an idle timeout — is
-    discarded and replaced instead of surfacing as a 500. Without it, every
-    connection the pool held across a Postgres restart fails exactly once, one
-    request each (the 2026-09-21 adulting incident: enabling Railway PITR redeployed
-    Postgres, and the next N requests each got ``OperationalError: SSL error:
-    unexpected eof`` from a dead pooled connection). The cost is one extra round
-    trip per checkout, which is small next to the request's own queries.
+    ``check_on_checkout`` (default on) sets Django's ``CONN_HEALTH_CHECKS``, which is
+    how Django hands psycopg_pool its ``check`` hook (``ConnectionPool.check_connection``,
+    one empty-query round trip at checkout; Django's own default is *off*). A pooled
+    connection the server closed while it sat idle — a database restart, a failover, an
+    idle timeout — is then discarded and replaced instead of surfacing as a 500.
+    Without it, every connection the pool held across a Postgres restart fails exactly
+    once, one request each (the 2026-09-21 adulting incident: enabling Railway PITR
+    redeployed Postgres, and the next three requests each got ``OperationalError: SSL
+    error: unexpected eof`` from a dead pooled connection). Do not put ``check`` in the
+    pool options yourself — Django passes it, and a second one is a ``TypeError``.
     """
     e = os.environ if env is None else env
-    pool: dict[str, Any] = {
+    pool = {
         "min_size": min_size if min_size is not None else int(e.get("DB_POOL_MIN_SIZE", "1")),
         "max_size": max_size if max_size is not None else int(e.get("DB_POOL_MAX_SIZE", "5")),
         "timeout": timeout if timeout is not None else int(e.get("DB_POOL_TIMEOUT", "10")),
     }
-    if check_on_checkout:
-        pool["check"] = check_pooled_connection
     if e.get("DATABASE_URL"):
         config: dict[str, Any] = dict(dj_database_url.parse(e["DATABASE_URL"]))
         config["OPTIONS"] = {
@@ -77,6 +76,7 @@ def pooled_database(
             "pool": pool,
             "connect_timeout": connect_timeout,
         }
+        config["CONN_HEALTH_CHECKS"] = check_on_checkout
         return config
     return {
         "ENGINE": "django.db.backends.postgresql",
@@ -86,23 +86,8 @@ def pooled_database(
         "HOST": e.get("POSTGRES_HOST", "localhost"),
         "PORT": e.get("POSTGRES_PORT", "5432"),
         "OPTIONS": {"pool": pool, "connect_timeout": connect_timeout},
+        "CONN_HEALTH_CHECKS": check_on_checkout,
     }
-
-
-def check_pooled_connection(conn: Any) -> None:
-    """The pool's ``check`` hook: raise if ``conn`` is no longer usable.
-
-    Delegates to ``psycopg_pool.ConnectionPool.check_connection`` — the pool's own
-    implementation (it also normalises transaction state) — which every consumer that
-    uses the pool necessarily has installed. The fallback keeps this module importable
-    and testable without psycopg: a bare round trip is what the check reduces to.
-    """
-    try:
-        from psycopg_pool import ConnectionPool
-    except ImportError:  # pragma: no cover - exercised only where psycopg_pool is absent
-        conn.execute("SELECT 1")
-        return
-    ConnectionPool.check_connection(conn)
 
 
 def redis_cache(
