@@ -79,3 +79,54 @@ def test_resend_omits_html_when_absent(monkeypatch):
 
     ResendProvider().send(to_email="a@b.c", subject="S", body_text="text")
     assert "html" not in sent
+
+
+def test_django_send_has_no_reply_to_unless_configured():
+    DjangoMailProvider().send(to_email="a@b.c", subject="S", body_text="x")
+    assert mail.outbox[0].reply_to == []
+
+
+@override_settings(DEFAULT_REPLY_TO_EMAIL="hello@example.com")
+def test_django_send_sets_reply_to_when_configured():
+    """Out from the sending subdomain, replies to the monitored apex inbox."""
+    DjangoMailProvider().send(to_email="a@b.c", subject="S", body_text="x", body_html="<p>x</p>")
+    message = mail.outbox[0]
+    assert message.reply_to == ["hello@example.com"]
+    assert message.alternatives == [("<p>x</p>", "text/html")]  # multipart unchanged
+
+
+@override_settings(
+    RESEND_API_KEY="test-key",
+    DEFAULT_FROM_EMAIL="noreply@send.example.com",
+    DEFAULT_REPLY_TO_EMAIL="hello@example.com",
+)
+def test_resend_payload_carries_reply_to(monkeypatch):
+    sent = {}
+
+    class FakeEmails:
+        @staticmethod
+        def send(params):
+            sent.update(params)
+
+    fake = type("resend", (), {"api_key": None, "Emails": FakeEmails})
+    monkeypatch.setitem(__import__("sys").modules, "resend", fake)
+
+    ResendProvider().send(to_email="a@b.c", subject="S", body_text="text")
+    assert sent["from"] == "noreply@send.example.com"
+    assert sent["reply_to"] == ["hello@example.com"]
+
+
+@override_settings(RESEND_API_KEY="test-key")
+def test_resend_omits_reply_to_when_unset(monkeypatch):
+    sent = {}
+
+    class FakeEmails:
+        @staticmethod
+        def send(params):
+            sent.update(params)
+
+    fake = type("resend", (), {"api_key": None, "Emails": FakeEmails})
+    monkeypatch.setitem(__import__("sys").modules, "resend", fake)
+
+    ResendProvider().send(to_email="a@b.c", subject="S", body_text="text")
+    assert "reply_to" not in sent

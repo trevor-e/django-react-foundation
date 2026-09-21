@@ -257,7 +257,8 @@ kinds extend `drf_foundation/email/layout.html` and register a fixture via
 `settings.EMAIL_PREVIEWS`. Table layout with inline styles, autoescaping never
 disabled, no remote assets (nothing here can become a tracking pixel).
 `drf_foundation.email_provider` is the delivery seam — Django backend or Resend, always
-multipart with text primary.
+multipart with text primary. `DEFAULT_REPLY_TO_EMAIL`, when set, adds `Reply-To` on both
+providers: send from a dedicated subdomain, collect replies on the apex inbox.
 
 Scheduled jobs — one declaration feeding both Celery beat and a Sentry cron monitor:
 

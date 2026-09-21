@@ -28,6 +28,7 @@ def pooled_database(
     max_size: int | None = None,
     timeout: int | None = None,
     connect_timeout: int = 5,
+    check_on_checkout: bool = True,
     env: os._Environ | dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """The `DATABASES["default"]` entry: DATABASE_URL (platform convention) when set,
@@ -50,13 +51,25 @@ def pooled_database(
     (default 1), ``DB_POOL_MAX_SIZE`` (default 5), ``DB_POOL_TIMEOUT`` (default 10s)
     — so each deploy role (web / worker / beat) can be sized independently via
     platform vars, no code change.
+
+    ``check_on_checkout`` (default on) validates a pooled connection with one cheap
+    round trip before handing it to a request, so a connection the server closed
+    while it sat idle — a database restart, a failover, an idle timeout — is
+    discarded and replaced instead of surfacing as a 500. Without it, every
+    connection the pool held across a Postgres restart fails exactly once, one
+    request each (the 2026-09-21 adulting incident: enabling Railway PITR redeployed
+    Postgres, and the next N requests each got ``OperationalError: SSL error:
+    unexpected eof`` from a dead pooled connection). The cost is one extra round
+    trip per checkout, which is small next to the request's own queries.
     """
     e = os.environ if env is None else env
-    pool = {
+    pool: dict[str, Any] = {
         "min_size": min_size if min_size is not None else int(e.get("DB_POOL_MIN_SIZE", "1")),
         "max_size": max_size if max_size is not None else int(e.get("DB_POOL_MAX_SIZE", "5")),
         "timeout": timeout if timeout is not None else int(e.get("DB_POOL_TIMEOUT", "10")),
     }
+    if check_on_checkout:
+        pool["check"] = check_pooled_connection
     if e.get("DATABASE_URL"):
         config: dict[str, Any] = dict(dj_database_url.parse(e["DATABASE_URL"]))
         config["OPTIONS"] = {
@@ -74,6 +87,22 @@ def pooled_database(
         "PORT": e.get("POSTGRES_PORT", "5432"),
         "OPTIONS": {"pool": pool, "connect_timeout": connect_timeout},
     }
+
+
+def check_pooled_connection(conn: Any) -> None:
+    """The pool's ``check`` hook: raise if ``conn`` is no longer usable.
+
+    Delegates to ``psycopg_pool.ConnectionPool.check_connection`` — the pool's own
+    implementation (it also normalises transaction state) — which every consumer that
+    uses the pool necessarily has installed. The fallback keeps this module importable
+    and testable without psycopg: a bare round trip is what the check reduces to.
+    """
+    try:
+        from psycopg_pool import ConnectionPool
+    except ImportError:  # pragma: no cover - exercised only where psycopg_pool is absent
+        conn.execute("SELECT 1")
+        return
+    ConnectionPool.check_connection(conn)
 
 
 def redis_cache(

@@ -13,12 +13,23 @@ send log should persist.
 
 Select with ``settings.EMAIL_PROVIDER`` (``"django"`` or ``"resend"``, default
 ``"django"``); ``ResendProvider`` reads ``settings.RESEND_API_KEY``.
+
+Both providers send From ``settings.DEFAULT_FROM_EMAIL`` and, when
+``settings.DEFAULT_REPLY_TO_EMAIL`` is set, add a ``Reply-To`` header with it. That is
+the seam for the common split where mail goes *out* from a dedicated sending
+subdomain (reputation isolation) but replies should land in a monitored inbox on the
+apex — "reply to this email to reach support" only works if Reply-To says where.
 """
 
 from typing import Protocol
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives, send_mail
+from django.core.mail import EmailMultiAlternatives
+
+
+def _reply_to() -> list[str]:
+    value = getattr(settings, "DEFAULT_REPLY_TO_EMAIL", "")
+    return [value] if value else []
 
 
 class EmailProvider(Protocol):
@@ -34,21 +45,15 @@ class DjangoMailProvider:
     def send(
         self, *, to_email: str, subject: str, body_text: str, body_html: str | None = None
     ) -> None:
-        if body_html is None:
-            send_mail(
-                subject=subject,
-                message=body_text,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[to_email],
-            )
-            return
         message = EmailMultiAlternatives(
             subject=subject,
             body=body_text,
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[to_email],
+            reply_to=_reply_to(),
         )
-        message.attach_alternative(body_html, "text/html")
+        if body_html is not None:
+            message.attach_alternative(body_html, "text/html")
         message.send()
 
 
@@ -71,6 +76,8 @@ class ResendProvider:
         }
         if body_html is not None:
             params["html"] = body_html
+        if reply_to := _reply_to():
+            params["reply_to"] = reply_to
         resend.Emails.send(params)
 
 

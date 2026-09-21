@@ -1,7 +1,10 @@
 import re
 
+import pytest
+
 from drf_foundation.settings_helpers import (
     allowed_hosts_from_env,
+    check_pooled_connection,
     pooled_database,
     production_security_settings,
     redis_cache,
@@ -11,7 +14,9 @@ from drf_foundation.settings_helpers import (
 def test_pooled_database_from_url():
     config = pooled_database(env={"DATABASE_URL": "postgresql://u:p@db.internal:5432/app"})
     assert config["HOST"] == "db.internal"
-    assert config["OPTIONS"]["pool"] == {"min_size": 1, "max_size": 5, "timeout": 10}
+    pool = dict(config["OPTIONS"]["pool"])
+    assert pool.pop("check") is check_pooled_connection
+    assert pool == {"min_size": 1, "max_size": 5, "timeout": 10}
 
 
 def test_pooled_database_from_postgres_vars():
@@ -19,6 +24,47 @@ def test_pooled_database_from_postgres_vars():
     assert config["NAME"] == "myapp"
     assert config["PORT"] == "5433"
     assert config["OPTIONS"]["pool"]["max_size"] == 5
+
+
+def test_pooled_database_checks_connections_on_checkout_by_default():
+    """A connection the server closed while idle (restart, failover, idle timeout) must
+    be replaced at checkout, not handed to a request to fail there."""
+    config = pooled_database(env={})
+    assert config["OPTIONS"]["pool"]["check"] is check_pooled_connection
+
+
+def test_pooled_database_checkout_check_can_be_disabled():
+    config = pooled_database(check_on_checkout=False, env={})
+    assert "check" not in config["OPTIONS"]["pool"]
+
+
+def test_check_pooled_connection_is_one_round_trip(monkeypatch):
+    """Without psycopg_pool installed the check reduces to a bare round trip; with it,
+    the pool's own check_connection runs (covered by the consumer against Postgres)."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "psycopg_pool", None)  # force the ImportError branch
+    executed = []
+
+    class Conn:
+        def execute(self, sql):
+            executed.append(sql)
+
+    check_pooled_connection(Conn())
+    assert executed == ["SELECT 1"]
+
+
+def test_check_pooled_connection_raises_when_the_round_trip_fails(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "psycopg_pool", None)
+
+    class DeadConn:
+        def execute(self, sql):
+            raise OSError("connection closed")
+
+    with pytest.raises(OSError):
+        check_pooled_connection(DeadConn())
 
 
 def test_pooled_database_bounds_are_tunable():
@@ -85,7 +131,9 @@ def test_pooled_database_bounds_from_env():
     config = pooled_database(
         env={"DB_POOL_MIN_SIZE": "2", "DB_POOL_MAX_SIZE": "8", "DB_POOL_TIMEOUT": "5"}
     )
-    assert config["OPTIONS"]["pool"] == {"min_size": 2, "max_size": 8, "timeout": 5}
+    pool = dict(config["OPTIONS"]["pool"])
+    assert pool.pop("check") is check_pooled_connection
+    assert pool == {"min_size": 2, "max_size": 8, "timeout": 5}
 
 
 def test_pooled_database_explicit_args_beat_env():
