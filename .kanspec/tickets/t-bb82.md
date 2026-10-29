@@ -1,16 +1,16 @@
 ---
 id: t-bb82
 title: 'drf_foundation.mcp: opt-in permissions beside the access level, tool grants, image results'
-state: todo
+state: doing
 spec: null
 proposal: null
 item: null
 deps: []
 followup_of: null
 discovered_in: null
-branch: null
+branch: ks/t-bb82-drf-foundation-mcp-opt-in-permissions-be
 worktree: null
-claimed_by: null
+claimed_by: claude/5b1a7e4c-5c48
 pr: null
 head: null
 spec_unchanged: null
@@ -26,3 +26,4 @@ drf_foundation.mcp: opt-in permissions beside the access level, tool grants, ima
 
 ## Log
 - 2026-10-29T01:53Z  todo     claude/5b1a7e4c-5c48  new
+- 2026-10-29T01:53Z  doing    claude/5b1a7e4c-5c48  start (branch created)
