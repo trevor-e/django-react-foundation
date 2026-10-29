@@ -123,7 +123,7 @@ def test_tools_list_and_call_round_trip(client):
     secret, _ = mint()
 
     listed = rpc(client, secret, "tools/list").json()["result"]["tools"]
-    assert {t["name"] for t in listed} == {"whoami", "shout"}
+    assert {t["name"] for t in listed} == {"whoami", "shout", "peek"}
 
     result = call(client, secret, "whoami")
     payload = json.loads(result["content"][0]["text"])

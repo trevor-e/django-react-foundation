@@ -17,11 +17,11 @@ living in the package rather than in each project.
 """
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from typing import Any
 
-from drf_foundation.mcp.tools import READ_ONLY_REFUSAL, Tool, definitions
+from drf_foundation.mcp.tools import READ_ONLY_REFUSAL, Tool, definitions, missing_permission
 from drf_foundation.mcp.tools import call as call_tool
 
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-03-26", "2025-06-18", "2025-11-25")
@@ -60,6 +60,10 @@ class McpServer:
     # tool runs — say so explicitly rather than defaulting a credential open.
     can_write: Callable[[Any], bool] | None = None
     write_refused: str = READ_ONLY_REFUSAL
+    # The permissions this request's credential holds, for tools that `require` one.
+    # Left unset, no such tool runs.
+    permissions: Callable[[Any], Collection[str]] | None = None
+    permission_refused: Callable[[str], str] = missing_permission
     # Reported in `initialize`; a tools-only server has nothing else to declare.
     capabilities: dict[str, Any] = field(default_factory=lambda: {"tools": {"listChanged": False}})
 
@@ -146,6 +150,8 @@ def handle_post(
             arguments,
             can_write=server.can_write,
             write_refused=server.write_refused,
+            permissions=server.permissions,
+            permission_refused=server.permission_refused,
         )
         if outcome is None:
             return 200, _error(msg_id, INVALID_PARAMS, f"Unknown tool: {name}")

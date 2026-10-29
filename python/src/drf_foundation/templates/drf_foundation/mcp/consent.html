@@ -2,7 +2,7 @@
 The default consent page. Override it by pointing OAuthConfig.consent_template at
 your own; the context is documented in drf_foundation.mcp.oauth (client_name,
 redirect_host, loopback_only, resources, single_resource, scopes, default_scope,
-payload). Deliberately styleless-but-legible and dependency-free: it is served
+permissions — each {permission, checked} — and payload). Deliberately styleless-but-legible and dependency-free: it is served
 from the API origin, where a project's frontend assets do not exist.
 {% endcomment %}<!doctype html>
 <html lang="en">
@@ -90,6 +90,17 @@ from the API origin, where a project's frontend assets do not exist.
           — {{ scope.description }}{% endif %}</span>
         </div>
       {% endfor %}
+      {% if permissions %}
+        <label>Also allow</label>
+        {% for item in permissions %}
+          <div class="choice">
+            <input type="checkbox" id="permission-{{ item.permission.value }}" name="permission"
+                   value="{{ item.permission.value }}" {% if item.checked %}checked{% endif %}>
+            <span><label for="permission-{{ item.permission.value }}" style="display:inline;margin:0">{{ item.permission.label }}</label>{% if item.permission.description %}
+            — {{ item.permission.description }}{% endif %}</span>
+          </div>
+        {% endfor %}
+      {% endif %}
       <div class="actions">
         <button type="submit" name="action" value="deny">Cancel</button>
         <button type="submit" name="action" value="approve" class="primary">Approve</button>

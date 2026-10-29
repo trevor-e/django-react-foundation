@@ -500,6 +500,37 @@ runs in the package, so a fake can't skip the checks.
 > Upgrading from ≤0.20: `AbstractOAuthClient.client_id` widened from 64 to 500 chars
 > to hold URL identities — each consumer needs a migration picking that up.
 
+### Permissions beside the access level
+
+A `Scope` is *how much* a credential may do. A `Permission` is a particular kind of reach
+the person decides on separately — seeing file contents, deleting irreversibly — shown as
+a checkbox under the levels. Declare them on the provider; a provider without any renders
+the page exactly as before.
+
+```python
+class Provider:
+    scopes = (...)
+    permissions = (Permission("files", "See your files", "photos and PDFs", default=True),
+                   Permission("delete", "Delete things permanently"))
+```
+
+The granted scope string is the level, then the ticked permissions in declaration order
+(`"read_write files"`); `mint` receives it whole and `split_scope` takes it apart. A POST
+naming a permission that wasn't offered is refused; `scopes_supported` lists levels then
+permissions. A tool names the one it needs with `Tool(requires="files")`, and the server
+says what a credential holds with `McpServer(permissions=lambda ctx: ...)`. Unlike
+`can_write`, leaving `permissions` unset **fails closed** — a permission is an opt-in, so
+no answer is a no. Where a credential's permissions live, and whether they can change
+after consent, is the project's.
+
+A handler can return `ToolResult(payload, images=(Image(data, "image/png"),))` to hand
+the model images: the payload stays the first, text block and each image follows as an
+MCP `image` block.
+
+> Upgrading from ≤0.22: `AbstractAuthorizationCode.scope` widened from 16 to 255 chars to
+> hold permissions — each consumer needs a migration picking that up, and its own key
+> model's scope column wide enough for whatever `mint` stores.
+
 ### The frontend's half
 
 `login_url` sends a signed-out user to your SPA with the authorize URL in `?next=`. The

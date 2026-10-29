@@ -81,6 +81,32 @@ class Scope:
     description: str = ""
 
 
+@dataclass(frozen=True)
+class Permission:
+    """An opt-in grant offered beside the access level, as a consent-page checkbox.
+
+    Where a :class:`Scope` is *how much* a credential may do, a permission is a
+    particular kind of reach the person decides on separately — seeing file
+    contents, deleting irreversibly. ``default`` is whether the box starts ticked.
+    It travels in the scope string after the level (``"read_write files"``), and the
+    provider's ``mint`` decides what storing it means.
+    """
+
+    value: str
+    label: str
+    description: str = ""
+    default: bool = False
+
+
+def split_scope(scope: str) -> tuple[str, frozenset[str]]:
+    """``"read_write files delete"`` → ``("read_write", {"files", "delete"})``.
+
+    The first word is the access level, the rest the permissions granted with it.
+    It only splits; :meth:`McpOAuth.parse_scope` is what validates."""
+    words = scope.split()
+    return (words[0] if words else ""), frozenset(words[1:])
+
+
 class MintRefused(Exception):
     """The provider declined to mint — a quota, a policy, a disabled account.
 
@@ -109,6 +135,10 @@ class OAuthProvider(Protocol):
         """
         ...
 
+    # Optional: ``permissions`` — a sequence of :class:`Permission` offered as
+    # checkboxes under the access level. Not declared on the protocol so a provider
+    # without any stays a complete implementation; read via ``McpOAuth.permissions``.
+
     def resources(self, user: Any) -> list[Resource]:
         """Everything ``user`` may connect. One entry renders no picker."""
         ...
@@ -119,7 +149,8 @@ class OAuthProvider(Protocol):
 
     def mint(self, *, user: Any, resource: Resource, scope: str, client: Any) -> tuple[str, Any]:
         """Create a credential. Returns ``(secret, key_row)``; raises
-        :class:`MintRefused` to decline."""
+        :class:`MintRefused` to decline. ``scope`` is the validated scope string — the
+        level, then any granted permissions — which :func:`split_scope` takes apart."""
         ...
 
     def replace_previous(self, *, user: Any, resource: Resource, client: Any) -> None:
@@ -411,6 +442,30 @@ class McpOAuth:
     def scope_values(self) -> list[str]:
         return [scope.value for scope in self.provider.scopes]
 
+    @property
+    def permissions(self) -> list[Permission]:
+        return list(getattr(self.provider, "permissions", ()))
+
+    @property
+    def supported_scopes(self) -> list[str]:
+        """Everything a client may ask for: the levels, then the permissions."""
+        return self.scope_values + [p.value for p in self.permissions]
+
+    def parse_scope(self, level: str, permissions: list[str]) -> str | None:
+        """The scope string for one offered level plus offered permissions, or None
+        when anything named was not offered. Permissions are ordered as the provider
+        declares them, so the stored string is canonical."""
+        offered = [p.value for p in self.permissions]
+        if level not in self.scope_values or not set(permissions) <= set(offered):
+            return None
+        return " ".join([level, *(value for value in offered if value in permissions)])
+
+    def default_permissions(self, requested: str) -> set[str]:
+        """The permissions ticked when the consent page opens: each one's default,
+        plus any the client named in its requested scope."""
+        asked = set(requested.split())
+        return {p.value for p in self.permissions if p.default or p.value in asked}
+
     def default_scope(self, requested: str) -> str:
         """The scope pre-selected on the consent page.
 
@@ -418,7 +473,7 @@ class McpOAuth:
         asked to be useful, and the person is about to see exactly what they are
         granting either way.
         """
-        asked = set(requested.split())
+        asked = set(requested.split()) - {p.value for p in self.permissions}
         for scope in self.provider.scopes:
             if asked == {scope.value}:
                 return scope.value
@@ -463,7 +518,7 @@ class McpOAuth:
             {
                 "resource": f"{self.issuer}{self.config.mcp_path}",
                 "authorization_servers": [self.issuer],
-                "scopes_supported": self.scope_values,
+                "scopes_supported": self.supported_scopes,
                 "bearer_methods_supported": ["header"],
                 "resource_name": self.config.resource_name,
             }
@@ -486,7 +541,7 @@ class McpOAuth:
                 "code_challenge_methods_supported": ["S256"],
                 "token_endpoint_auth_methods_supported": ["none"],
                 "client_id_metadata_document_supported": True,
-                "scopes_supported": self.scope_values,
+                "scopes_supported": self.supported_scopes,
             }
         )
         response["Cache-Control"] = "public, max-age=3600"
@@ -615,6 +670,7 @@ class McpOAuth:
                 self.config.no_resources_message,
             )
 
+        checked = self.default_permissions(params.get("scope", ""))
         context = {
             "client_name": client_name,
             # The verifiable half of a CIMD identity — the consent template shows
@@ -626,6 +682,9 @@ class McpOAuth:
             "single_resource": len(resources) == 1,
             "scopes": list(self.provider.scopes),
             "default_scope": self.default_scope(params.get("scope", "")),
+            "permissions": [
+                {"permission": p, "checked": p.value in checked} for p in self.permissions
+            ],
             "resource_name": self.config.resource_name,
             "payload": signing.dumps(
                 {
@@ -702,8 +761,8 @@ class McpOAuth:
             return self._error_page(
                 request, "Not yours to connect", "Pick something you have access to.", 403
             )
-        scope = request.POST.get("scope", "")
-        if scope not in self.scope_values:
+        scope = self.parse_scope(request.POST.get("scope", ""), request.POST.getlist("permission"))
+        if scope is None:
             return self._error_page(
                 request, "Invalid scope", "Pick one of the offered access levels."
             )

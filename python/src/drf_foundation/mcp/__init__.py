@@ -42,11 +42,13 @@ from drf_foundation.mcp.oauth import (
     OAuthConfig,
     OAuthModels,
     OAuthProvider,
+    Permission,
     Resource,
     Scope,
     login_redirect,
     permissive_cors,
     redirect_uri_allowed,
+    split_scope,
 )
 from drf_foundation.mcp.protocol import (
     LATEST_PROTOCOL_VERSION,
@@ -54,7 +56,7 @@ from drf_foundation.mcp.protocol import (
     McpServer,
     handle_post,
 )
-from drf_foundation.mcp.tools import Tool, ToolArgs, ToolError, registry
+from drf_foundation.mcp.tools import Image, Tool, ToolArgs, ToolError, ToolResult, registry
 from drf_foundation.mcp.views import KeyRateThrottle, mcp_endpoint
 
 __all__ = [
@@ -66,6 +68,7 @@ __all__ = [
     "AbstractOAuthClient",
     "CimdClient",
     "CimdError",
+    "Image",
     "KeyRateThrottle",
     "McpOAuth",
     "McpServer",
@@ -73,11 +76,13 @@ __all__ = [
     "OAuthConfig",
     "OAuthModels",
     "OAuthProvider",
+    "Permission",
     "Resource",
     "Scope",
     "Tool",
     "ToolArgs",
     "ToolError",
+    "ToolResult",
     "TokenCodec",
     "bearer_token",
     "handle_post",
@@ -88,4 +93,5 @@ __all__ = [
     "redirect_uri_allowed",
     "registry",
     "resolve_token",
+    "split_scope",
 ]

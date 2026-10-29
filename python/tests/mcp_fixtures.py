@@ -6,22 +6,26 @@ against a row a user belongs to; a single-tenant app grants against the user. If
 the second ever needs its own code path in the package, something has gone wrong.
 """
 
+import base64
 from typing import Any
 
 from django.utils import timezone
 from pydantic import Field
 
 from drf_foundation.mcp import (
+    Image,
     McpOAuth,
     McpServer,
     MintRefused,
     OAuthConfig,
     OAuthModels,
+    Permission,
     Resource,
     Scope,
     TokenCodec,
     Tool,
     ToolArgs,
+    ToolResult,
     login_redirect,
     mcp_endpoint,
     registry,
@@ -167,6 +171,26 @@ MULTI_OAUTH = McpOAuth(
     config=_config(),
 )
 
+PERMISSIONS = (
+    Permission(value="files", label="See your files", description="photos and PDFs", default=True),
+    Permission(value="delete", label="Delete things permanently"),
+)
+
+
+class PermissionedProvider(MultiTenantProvider):
+    """The multi-tenant shape plus opt-in permissions beside its levels."""
+
+    permissions = PERMISSIONS
+
+
+PERM_PROVIDER = PermissionedProvider()
+
+PERM_OAUTH = McpOAuth(
+    provider=PERM_PROVIDER,
+    models=OAuthModels(client=OAuthClient, code=AuthorizationCode, grant=Grant),
+    config=_config(),
+)
+
 SINGLE_OAUTH = McpOAuth(
     provider=SINGLE_PROVIDER,
     models=OAuthModels(
@@ -201,6 +225,20 @@ def _shout(context, args: ShoutArgs) -> dict:
     return {"said": args.text.upper()}
 
 
+class PeekArgs(ToolArgs):
+    pass
+
+
+# A 1x1 transparent PNG.
+PIXEL = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+)
+
+
+def _peek(context, args: PeekArgs) -> ToolResult:
+    return ToolResult({"file": "pixel.png"}, images=(Image(PIXEL, "image/png"),))
+
+
 TEST_REGISTRY = registry(
     Tool(
         name="whoami",
@@ -215,6 +253,13 @@ TEST_REGISTRY = registry(
         handler=_shout,
         writes=True,
     ),
+    Tool(
+        name="peek",
+        description="Look at a file.",
+        args_model=PeekArgs,
+        handler=_peek,
+        requires="files",
+    ),
 )
 
 TEST_SERVER = McpServer(
@@ -222,7 +267,8 @@ TEST_SERVER = McpServer(
     version="1.0.0",
     registry=TEST_REGISTRY,
     instructions=lambda context: f"Connected as {context['account']}.",
-    can_write=lambda context: context["scope"] == "read_write",
+    can_write=lambda context: context["scope"].split()[0] == "read_write",
+    permissions=lambda context: context["scope"].split()[1:],
 )
 
 

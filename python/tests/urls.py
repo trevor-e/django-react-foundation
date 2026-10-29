@@ -58,6 +58,7 @@ urlpatterns = [
 # Route *names* collide by design — the tests address these by literal path.
 from tests.mcp_fixtures import (  # noqa: E402
     MULTI_OAUTH,
+    PERM_OAUTH,
     SINGLE_OAUTH,
     TEST_ENDPOINT,
 )
@@ -66,6 +67,9 @@ urlpatterns += MULTI_OAUTH.urlpatterns()
 urlpatterns += [
     path(f"single/{p.pattern}", p.callback, name=f"single-{p.name}")
     for p in SINGLE_OAUTH.urlpatterns()
+]
+urlpatterns += [
+    path(f"perm/{p.pattern}", p.callback, name=f"perm-{p.name}") for p in PERM_OAUTH.urlpatterns()
 ]
 
 # The endpoint factory, mounted the way a project would.

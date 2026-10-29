@@ -43,7 +43,7 @@ class ApiKey(AbstractApiKey):
 
     account = models.ForeignKey(Account, related_name="api_keys", on_delete=models.CASCADE)
     name = models.CharField(max_length=100)
-    scope = models.CharField(max_length=16, default="read_write")
+    scope = models.CharField(max_length=64, default="read_write")
 
 
 # --- OAuth: two concrete model sets, one per tenancy shape -------------------

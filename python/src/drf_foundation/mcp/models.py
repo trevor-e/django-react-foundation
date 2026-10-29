@@ -101,7 +101,8 @@ class AbstractAuthorizationCode(models.Model):
     code_hash = models.CharField(max_length=64, unique=True)
     redirect_uri = models.CharField(max_length=500)
     code_challenge = models.CharField(max_length=128)
-    scope = models.CharField(max_length=16)
+    # The level plus any permissions, space-separated (`"read_write files"`).
+    scope = models.CharField(max_length=255)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
