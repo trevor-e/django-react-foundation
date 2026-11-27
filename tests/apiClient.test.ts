@@ -26,11 +26,18 @@ describe('createApiClient', () => {
     expect(result).toEqual({ id: 1 })
   })
 
-  it('tolerates an already-unwrapped body', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 1 }))
+  it('returns null for a successful nullable resource', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'success', data: null }))
     const client = createApiClient({ baseUrl: 'https://api.test', tokenStorage: createMemoryTokenStorage() })
 
-    expect(await client.request('/api/x')).toEqual({ id: 1 })
+    expect(await client.request('/api/x')).toBeNull()
+  })
+
+  it.each([{ id: 1 }, null, 'ready'])('tolerates an already-unwrapped body: %j', async (body) => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(body))
+    const client = createApiClient({ baseUrl: 'https://api.test', tokenStorage: createMemoryTokenStorage() })
+
+    expect(await client.request('/api/x')).toEqual(body)
   })
 
   it('returns undefined for a 204 without parsing a body', async () => {
