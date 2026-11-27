@@ -205,10 +205,10 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       return undefined as T
     }
 
-    const data = await response.json()
+    const data: unknown = await response.json()
     // Unwrap the `{status, data}` success envelope; tolerate an already-unwrapped body
     // so this client also works against endpoints that don't use the envelope.
-    return (data?.data ?? data) as T
+    return (typeof data === 'object' && data !== null && 'data' in data ? data.data : data) as T
   }
 
   async function jwtRequest<T>(endpoint: string, init?: RequestInit): Promise<T> {
